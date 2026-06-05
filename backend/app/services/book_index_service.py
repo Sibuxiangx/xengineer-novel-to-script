@@ -1,9 +1,104 @@
+from pathlib import Path
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.screenplay_agent import ScreenplayAgent
+from app.api.models.book_index import BookIndexResponse
+from app.core.config import Settings
+from app.db.repositories.chapters import ChapterRepository
+from app.db.repositories.projects import ProjectRepository
 from app.schemas.book_index import BookIndex
+from app.storage.project_store import ProjectStore
+
+
+class BookIndexNotFoundError(Exception):
+    """Raised when a project has no generated book index."""
+
+
+class BookIndexServiceProjectNotFoundError(Exception):
+    """Raised when a project does not exist for book-index operations."""
 
 
 class BookIndexService:
     """Service boundary for creating and reading book index artifacts."""
 
-    async def summarize_index(self, book_index: BookIndex) -> str:
-        return f"{book_index.title} contains {book_index.chapter_count} chapters."
+    def __init__(self, session: AsyncSession, settings: Settings, agent: ScreenplayAgent) -> None:
+        self.session = session
+        self.settings = settings
+        self.agent = agent
+        self.projects = ProjectRepository(session)
+        self.chapters = ChapterRepository(session)
+        self.store = ProjectStore(settings.local_artifact_root)
 
+    async def build_index(self, project_id: str, force_rebuild: bool) -> BookIndexResponse:
+        project = await self.projects.get(project_id)
+        if project is None:
+            raise BookIndexServiceProjectNotFoundError(project_id)
+
+        path = self.store.book_index_path(project_id)
+        if path.exists() and not force_rebuild:
+            book_index = BookIndex.model_validate(self.store.read_json(path))
+            return self._response(project_id, path, book_index)
+
+        chapters = await self.chapters.list_by_project(project_id)
+        prompt = self._build_prompt(
+            project_title=project.title,
+            project_id=project_id,
+            chapters=[
+                {
+                    "id": chapter.id,
+                    "title": chapter.title,
+                    "order": chapter.order_index + 1,
+                    "content": self.store.read_text(chapter.file_path),
+                    "token_estimate": chapter.token_estimate,
+                }
+                for chapter in chapters
+            ],
+        )
+        book_index = await self.agent.build_book_index(prompt)
+        self.store.write_json(path, book_index.model_dump(mode="json"))
+        return self._response(project_id, path, book_index)
+
+    async def get_index(self, project_id: str) -> BookIndexResponse:
+        project = await self.projects.get(project_id)
+        if project is None:
+            raise BookIndexServiceProjectNotFoundError(project_id)
+
+        path = self.store.book_index_path(project_id)
+        if not path.exists():
+            raise BookIndexNotFoundError(project_id)
+        book_index = BookIndex.model_validate(self.store.read_json(path))
+        return self._response(project_id, path, book_index)
+
+    def _response(self, project_id: str, path: Path, book_index: BookIndex) -> BookIndexResponse:
+        return BookIndexResponse(
+            project_id=project_id,
+            book_index=book_index,
+            file_path=str(path),
+        )
+
+    def _build_prompt(self, project_title: str, project_id: str, chapters: list[dict]) -> str:
+        chapter_blocks = []
+        for chapter in chapters:
+            chapter_blocks.append(
+                "\n".join(
+                    [
+                        f"章节 ID：{chapter['id']}",
+                        f"章节标题：{chapter['title']}",
+                        f"章节顺序：{chapter['order']}",
+                        f"token 估算：{chapter['token_estimate']}",
+                        "章节正文：",
+                        chapter["content"],
+                    ]
+                )
+            )
+        return "\n\n".join(
+            [
+                "请为以下已导入小说章节生成 book_index.json。",
+                f"项目 ID：{project_id}",
+                f"项目标题：{project_title}",
+                "要求：必须覆盖全部章节，保留稳定 ID，输出符合 BookIndex 模型。",
+                "章节内容如下：",
+                "\n\n---\n\n".join(chapter_blocks),
+            ]
+        )

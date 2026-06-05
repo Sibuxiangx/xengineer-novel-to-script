@@ -1,5 +1,7 @@
+import json
 from pathlib import Path
 from shutil import rmtree
+from typing import Any
 
 
 class ProjectStore:
@@ -49,3 +51,31 @@ class ProjectStore:
 
     def write_text(self, path: str | Path, content: str) -> None:
         Path(path).write_text(content, encoding="utf-8")
+
+    def book_index_path(self, project_id: str) -> Path:
+        return self.ensure_project_root(project_id) / "book_index.json"
+
+    def script_path(self, project_id: str) -> Path:
+        return self.ensure_project_root(project_id) / "script.yaml"
+
+    def versions_root(self, project_id: str) -> Path:
+        path = self.ensure_project_root(project_id) / "versions"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def script_version_path(self, project_id: str, version_id: str) -> Path:
+        return self.versions_root(project_id) / f"{version_id}.yaml"
+
+    def export_root(self, project_id: str) -> Path:
+        path = self.ensure_project_root(project_id) / "exports"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def write_json(self, path: str | Path, data: dict[str, Any]) -> None:
+        Path(path).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def read_json(self, path: str | Path) -> dict[str, Any]:
+        return json.loads(Path(path).read_text(encoding="utf-8"))

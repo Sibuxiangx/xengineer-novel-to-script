@@ -94,11 +94,13 @@ AI 能力说明：
 - 生成、编辑、修复都会返回校验报告，便于前端展示错误与可量化指标。
 - 局部编辑使用 `replace_script`、`patch_scene`、`replace_scene`、`insert_event`、`patch_event`、`delete_event` 等结构化操作，方便后续对话式迭代。
 
-运行测试：
+运行质量检查：
 
 ```bash
 cd backend
 uv run pytest
+uv run ruff check .
+uv run pyright
 ```
 
 ## 依赖说明
@@ -111,5 +113,12 @@ uv run pytest
 - SQLAlchemy async / aiosqlite：SQLite 异步数据访问。
 - python-dotenv：本地环境变量管理。
 - PyYAML：后续 YAML 解析、校验与导出。
+
+当前后端开发依赖：
+
+- pytest / pytest-asyncio：后端自动化测试。
+- httpx：FastAPI 测试客户端。
+- Ruff：Python lint 与导入检查。
+- Pyright：Python 静态类型检查。
 
 所有第三方依赖会持续在此处列明，并说明原创功能边界。

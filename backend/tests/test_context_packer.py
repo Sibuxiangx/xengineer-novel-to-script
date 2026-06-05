@@ -19,6 +19,7 @@ def test_context_packer_keeps_required_blocks_over_budget() -> None:
                 content="excerpt",
                 priority=1,
                 estimated_tokens=100,
+                required=False,
             ),
         ],
         budget=50,
@@ -26,4 +27,3 @@ def test_context_packer_keeps_required_blocks_over_budget() -> None:
 
     assert report.included_block_ids == ["schema"]
     assert report.omitted_block_ids == ["excerpt"]
-

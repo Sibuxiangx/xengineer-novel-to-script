@@ -13,8 +13,10 @@ class FakeBookIndexAgent:
     async def build_book_index(self, prompt: str) -> BookIndex:
         assert "章节内容如下" in prompt
         return BookIndex(
+            schema_version="1.0",
             book_id="proj_test",
             title="五章长篇",
+            language="zh-CN",
             chapter_count=2,
             chapters=[
                 IndexedChapter(
@@ -149,4 +151,3 @@ def test_script_validation_accepts_valid_yaml_and_rejects_bad_reference() -> Non
         report = invalid_response.json()["validation_report"]
         assert report["accepted"] is False
         assert any(issue["code"] == "undefined_character" for issue in report["errors"])
-

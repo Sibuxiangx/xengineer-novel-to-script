@@ -54,6 +54,29 @@ class ChatToolCallResponse(BaseModel):
     updated_at: datetime = Field(..., description="Tool call update time.")
 
 
+class ChatRunResponse(BaseModel):
+    id: str = Field(..., description="Stable agent run identifier.")
+    session_id: str = Field(..., description="Chat session identifier.")
+    status: Literal[
+        "running",
+        "waiting_confirmation",
+        "completed",
+        "completed_with_errors",
+        "failed",
+    ] = Field(..., description="Run lifecycle status.")
+    user_message_id: str | None = Field(
+        default=None,
+        description="User message that triggered this run.",
+    )
+    assistant_message_id: str | None = Field(
+        default=None,
+        description="Assistant message produced by this run, if any.",
+    )
+    error_message: str | None = Field(default=None, description="Run error message.")
+    created_at: datetime = Field(..., description="Run creation time.")
+    updated_at: datetime = Field(..., description="Run update time.")
+
+
 class ChapterSplitConfirmationPayload(BaseModel):
     file_name: str = Field(..., description="Original TXT file name.")
     source_text_path: str = Field(..., description="Local source TXT artifact path.")
@@ -80,12 +103,59 @@ class ChatConfirmationResponse(BaseModel):
     resolved_at: datetime | None = Field(default=None, description="Confirmation resolution time.")
 
 
+class ChatTimelineItemResponse(BaseModel):
+    id: str = Field(..., description="Stable timeline item identifier.")
+    kind: Literal["message", "tool_call", "confirmation"] = Field(
+        ...,
+        description="Timeline item kind used by the chat UI.",
+    )
+    session_id: str = Field(..., description="Chat session identifier.")
+    run_id: str | None = Field(
+        default=None,
+        description="Agent run identifier, when this item belongs to a run.",
+    )
+    message: ChatMessageResponse | None = Field(
+        default=None,
+        description="Message payload when kind is message.",
+    )
+    tool_call: ChatToolCallResponse | None = Field(
+        default=None,
+        description="Tool-call payload when kind is tool_call.",
+    )
+    confirmation: ChatConfirmationResponse | None = Field(
+        default=None,
+        description="Confirmation payload when kind is confirmation.",
+    )
+    created_at: datetime = Field(..., description="Timeline ordering timestamp.")
+
+
 class ChatSessionDetailResponse(BaseModel):
     session: ChatSessionResponse = Field(..., description="Chat session metadata.")
     messages: list[ChatMessageResponse] = Field(..., description="Messages in display order.")
     pending_confirmations: list[ChatConfirmationResponse] = Field(
         ...,
         description="Pending confirmations requiring user action.",
+    )
+    tool_calls: list[ChatToolCallResponse] = Field(
+        default_factory=list,
+        description=(
+            "All tool calls executed in this session, in chronological order. "
+            "Allows the UI to render the full agent trace after a page refresh."
+        ),
+    )
+    runs: list[ChatRunResponse] = Field(
+        default_factory=list,
+        description=(
+            "Agent runs in chronological order, including the user and assistant "
+            "message IDs used to place tool traces in the chat timeline."
+        ),
+    )
+    timeline: list[ChatTimelineItemResponse] = Field(
+        default_factory=list,
+        description=(
+            "Canonical chat display timeline. The UI should render this first so "
+            "messages, tool calls, and confirmations keep the same order after refresh."
+        ),
     )
     latest_versions: list[ScriptVersionResponse] = Field(
         default_factory=list,

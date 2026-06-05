@@ -1,4 +1,6 @@
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +12,8 @@ from app.db.repositories.projects import ProjectRepository
 from app.schemas.book_index import BookIndex
 from app.services.context_prompt_builder import ContextPromptBuilder, PackedPrompt
 from app.storage.project_store import ProjectStore
+
+StreamDeltaCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class BookIndexNotFoundError(Exception):
@@ -32,7 +36,12 @@ class BookIndexService:
         self.store = ProjectStore(settings.local_artifact_root)
         self.context_prompts = ContextPromptBuilder(settings)
 
-    async def build_index(self, project_id: str, force_rebuild: bool) -> BookIndexResponse:
+    async def build_index(
+        self,
+        project_id: str,
+        force_rebuild: bool,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> BookIndexResponse:
         project = await self.projects.get(project_id)
         if project is None:
             raise BookIndexServiceProjectNotFoundError(project_id)
@@ -57,7 +66,10 @@ class BookIndexService:
                 for chapter in chapters
             ],
         )
-        book_index = await self.agent.build_book_index(packed_prompt.prompt)
+        book_index = await self.agent.build_book_index(
+            packed_prompt.prompt,
+            stream_callback=stream_callback,
+        )
         self.store.write_json(path, book_index.model_dump(mode="json"))
         return self._response(project_id, path, book_index, packed_prompt)
 

@@ -8,6 +8,7 @@ from app.db.models import (
     ChatMessageRecord,
     ChatRunRecord,
     ChatSessionRecord,
+    ChatSessionStatus,
     ChatToolCallRecord,
 )
 
@@ -23,10 +24,11 @@ class ChatRepository:
         await self.session.flush()
         return record
 
-    async def list_sessions(self) -> list[ChatSessionRecord]:
-        result = await self.session.execute(
-            select(ChatSessionRecord).order_by(ChatSessionRecord.updated_at.desc())
-        )
+    async def list_sessions(self, *, include_archived: bool = False) -> list[ChatSessionRecord]:
+        statement = select(ChatSessionRecord).order_by(ChatSessionRecord.updated_at.desc())
+        if not include_archived:
+            statement = statement.where(ChatSessionRecord.status == ChatSessionStatus.active.value)
+        result = await self.session.execute(statement)
         return list(result.scalars().all())
 
     async def get_session(self, session_id: str) -> ChatSessionRecord | None:
@@ -52,6 +54,14 @@ class ChatRepository:
         self.session.add(record)
         await self.session.flush()
         return record
+
+    async def list_runs(self, session_id: str) -> list[ChatRunRecord]:
+        result = await self.session.execute(
+            select(ChatRunRecord)
+            .where(ChatRunRecord.session_id == session_id)
+            .order_by(ChatRunRecord.created_at)
+        )
+        return list(result.scalars().all())
 
     async def add_tool_call(self, record: ChatToolCallRecord) -> ChatToolCallRecord:
         self.session.add(record)
@@ -90,6 +100,30 @@ class ChatRepository:
         )
         return list(result.scalars().all())
 
+    async def list_confirmations(self, session_id: str) -> list[ChatConfirmationRecord]:
+        result = await self.session.execute(
+            select(ChatConfirmationRecord)
+            .where(ChatConfirmationRecord.session_id == session_id)
+            .order_by(ChatConfirmationRecord.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def list_tool_calls(self, session_id: str) -> list[ChatToolCallRecord]:
+        result = await self.session.execute(
+            select(ChatToolCallRecord)
+            .where(ChatToolCallRecord.session_id == session_id)
+            .order_by(ChatToolCallRecord.created_at)
+        )
+        return list(result.scalars().all())
+
     async def touch_session(self, session: ChatSessionRecord) -> None:
         session.updated_at = datetime.now(UTC)
         await self.session.flush()
+
+    async def archive_session(self, session: ChatSessionRecord) -> None:
+        session.status = ChatSessionStatus.archived.value
+        await self.touch_session(session)
+
+    async def restore_session(self, session: ChatSessionRecord) -> None:
+        session.status = ChatSessionStatus.active.value
+        await self.touch_session(session)

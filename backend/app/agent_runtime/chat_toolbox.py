@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import uuid4
@@ -13,6 +15,7 @@ from app.agents.screenplay_agent import ScreenplayAgent
 from app.api.models.chat import (
     ChapterSplitConfirmationPayload,
     ChatConfirmationResponse,
+    ChatMessageResponse,
     ChatToolCallResponse,
 )
 from app.api.models.projects import (
@@ -25,6 +28,7 @@ from app.core.config import Settings
 from app.db.models import (
     ChatConfirmationRecord,
     ChatConfirmationStatus,
+    ChatMessageRecord,
     ChatMessageRole,
     ChatRunRecord,
     ChatRunStatus,
@@ -40,6 +44,8 @@ from app.services.context_packer import ContextPackingReport
 from app.services.project_service import ProjectService
 from app.services.script_service import ScriptService
 from app.storage.project_store import ProjectStore
+
+StreamDeltaCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class ProjectCreatedToolResult(BaseModel):
@@ -160,6 +166,7 @@ class ChatToolbox:
         self.last_repair_attempt_count = 0
         self.last_validation_report: dict[str, Any] | None = None
         self.last_validation_error_message: str | None = None
+        self.live_events: asyncio.Queue[str] = asyncio.Queue()
 
     async def propose_project_title(self) -> ProjectTitleSuggestion:
         tool = await self._start_tool(
@@ -168,7 +175,8 @@ class ChatToolbox:
         )
         try:
             title = await self.agent.infer_project_title(
-                self._title_prompt(self.source_file_name, self.source_text)
+                self._title_prompt(self.source_file_name, self.source_text),
+                stream_callback=self._llm_stream_callback(tool, "infer_project_title"),
             )
             await self._complete_tool(
                 tool,
@@ -211,7 +219,7 @@ class ChatToolbox:
                 source_text_path=str(source_path),
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "asset.updated",
                     {
@@ -250,6 +258,7 @@ class ChatToolbox:
                     max_review_rounds=2,
                     context_window_chars=1200,
                 ),
+                stream_callback=self._llm_stream_callback(tool, "propose_chapter_split"),
             )
             self.chapter_split_rule = inference.rule
             self.chapter_split_preview = inference.preview
@@ -299,6 +308,15 @@ class ChatToolbox:
             )
             self.run.assistant_message_id = assistant.id
             await self.db_session.commit()
+            self._append_event(
+                format_sse_event(
+                    "message.created",
+                    {
+                        **self._message_response(assistant).model_dump(mode="json"),
+                        "run_id": self.run.id,
+                    },
+                )
+            )
             self.pending_confirmation_id = confirmation.id
             result = ConfirmationRequestedToolResult(
                 confirmation_id=confirmation.id,
@@ -306,13 +324,13 @@ class ChatToolbox:
                 chapter_count=self.chapter_split_preview.chapter_count,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "tool.confirm.required",
                     self._confirmation_response(confirmation).model_dump(mode="json"),
                 )
             )
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "run.waiting_confirmation",
                     {"run_id": self.run.id, "confirmation_id": confirmation.id},
@@ -360,7 +378,7 @@ class ChatToolbox:
                 split_strategy=imported.split_strategy,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "asset.updated",
                     {
@@ -383,11 +401,61 @@ class ChatToolbox:
             {"project_id": project_id, "force_rebuild": force_rebuild},
         )
         try:
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "preparing",
+                    "message": "正在准备章节上下文并请求模型抽取人物、地点与事件。",
+                },
+            )
             index = await BookIndexService(
                 self.db_session,
                 self.settings,
                 self.agent,
-            ).build_index(project_id, force_rebuild=force_rebuild)
+            ).build_index(
+                project_id,
+                force_rebuild=force_rebuild,
+                stream_callback=self._llm_stream_callback(tool, "build_book_index"),
+            )
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "parsed",
+                    "kind": "metrics",
+                    "chapter_count": index.book_index.chapter_count,
+                    "character_count": len(index.book_index.characters),
+                    "location_count": len(index.book_index.locations),
+                },
+            )
+            for character in index.book_index.characters:
+                await self._emit_tool_delta(
+                    tool,
+                    {
+                        "phase": "parsed",
+                        "kind": "character",
+                        "item": {
+                            "id": character.id,
+                            "label": " / ".join(character.names),
+                            "role": character.role,
+                            "description": character.description,
+                        },
+                    },
+                )
+                await asyncio.sleep(0)
+            for location in index.book_index.locations:
+                await self._emit_tool_delta(
+                    tool,
+                    {
+                        "phase": "parsed",
+                        "kind": "location",
+                        "item": {
+                            "id": location.id,
+                            "label": location.name,
+                            "description": location.description,
+                        },
+                    },
+                )
+                await asyncio.sleep(0)
             result = BookIndexBuiltToolResult(
                 file_path=index.file_path,
                 chapter_count=index.book_index.chapter_count,
@@ -401,7 +469,7 @@ class ChatToolbox:
                 task="build_book_index",
                 context_report=index.context_report,
             )
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "asset.updated",
                     {
@@ -431,11 +499,33 @@ class ChatToolbox:
             {"project_id": project_id, "force_regenerate": force_regenerate},
         )
         try:
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "preparing",
+                    "message": "正在根据剧情索引生成剧本 YAML，并准备运行 harness 校验。",
+                },
+            )
             script = await ScriptService(
                 self.db_session,
                 self.settings,
                 self.agent,
-            ).generate_script(project_id, force_regenerate=force_regenerate)
+            ).generate_script(
+                project_id,
+                force_regenerate=force_regenerate,
+                stream_callback=self._llm_stream_callback(tool, "generate_script_yaml"),
+            )
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "validated",
+                    "kind": "validation",
+                    "accepted": script.validation_report.accepted,
+                    "validation_status": script.validation_status,
+                    "repair_attempt_count": script.repair_attempt_count,
+                    "severity": script.validation_report.severity,
+                },
+            )
             result = ScriptGeneratedToolResult(
                 accepted_version_id=script.accepted_version_id,
                 rejected_version_id=script.rejected_version_id,
@@ -464,7 +554,7 @@ class ChatToolbox:
                     else None
                 ),
             )
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "asset.updated",
                     {
@@ -494,6 +584,13 @@ class ChatToolbox:
             {"project_id": project_id, "instruction": instruction},
         )
         try:
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "planning",
+                    "message": "正在把自然语言修改请求转成结构化 YAML 编辑操作。",
+                },
+            )
             edit = await ScriptService(
                 self.db_session,
                 self.settings,
@@ -502,6 +599,7 @@ class ChatToolbox:
                 project_id=project_id,
                 instruction=instruction,
                 target_path=None,
+                stream_callback=self._llm_stream_callback(tool, "edit_script_yaml"),
             )
             result = ScriptEditedToolResult(
                 accepted_version_id=edit.accepted_version_id,
@@ -511,6 +609,17 @@ class ChatToolbox:
                 repair_attempt_count=edit.repair_attempt_count,
                 validation_status=edit.validation_status,
                 context_report=edit.context_report,
+            )
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "phase": "validated",
+                    "kind": "validation",
+                    "accepted": edit.validation_report.accepted,
+                    "validation_status": edit.validation_status,
+                    "repair_attempt_count": edit.repair_attempt_count,
+                    "operation_count": len(edit.operations),
+                },
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             await self._record_model_usage_estimate(
@@ -531,7 +640,7 @@ class ChatToolbox:
                     else None
                 ),
             )
-            self.events.append(
+            self._append_event(
                 format_sse_event(
                     "asset.updated",
                     {
@@ -562,22 +671,63 @@ class ChatToolbox:
             name=name,
             input_json=input_json,
         )
-        self.events.append(
+        self._append_event(
             format_sse_event("tool.call.started", self._tool_response(tool).model_dump())
         )
         return tool
 
     async def _complete_tool(self, tool: ChatToolCallRecord, output_json: dict[str, Any]) -> None:
         await self.recorder.complete_tool(tool, output_json)
-        self.events.append(
+        self._append_event(
             format_sse_event("tool.call.completed", self._tool_response(tool).model_dump())
         )
 
     async def _fail_tool(self, tool: ChatToolCallRecord, error_message: str) -> None:
         await self.recorder.fail_tool(tool, error_message)
-        self.events.append(
+        self._append_event(
             format_sse_event("tool.call.failed", self._tool_response(tool).model_dump())
         )
+
+    async def _emit_tool_delta(
+        self,
+        tool: ChatToolCallRecord,
+        delta: dict[str, Any],
+    ) -> None:
+        self._append_event(
+            format_sse_event(
+                "tool.call.delta",
+                {
+                    "id": tool.id,
+                    "session_id": tool.session_id,
+                    "run_id": tool.run_id,
+                    "name": tool.name,
+                    "status": tool.status,
+                    "delta": delta,
+                    "created_at": datetime.now(UTC),
+                },
+            )
+        )
+
+    def _llm_stream_callback(
+        self,
+        tool: ChatToolCallRecord,
+        tool_phase: str,
+    ) -> StreamDeltaCallback:
+        async def callback(delta: dict[str, Any]) -> None:
+            await self._emit_tool_delta(
+                tool,
+                {
+                    "kind": "llm_stream",
+                    "tool_phase": tool_phase,
+                    **delta,
+                },
+            )
+
+        return callback
+
+    def _append_event(self, event: str) -> None:
+        self.events.append(event)
+        self.live_events.put_nowait(event)
 
     async def _record_model_usage_estimate(
         self,
@@ -588,20 +738,21 @@ class ChatToolbox:
     ) -> None:
         if context_report is None:
             return
+        model = self._model_name_for_task(task)
         await self.recorder.record_model_usage(
             project_id=project_id,
             provider="deepseek",
-            model=self.settings.deepseek_model,
+            model=model,
             estimated_input_tokens=context_report.estimated_tokens,
         )
-        self.events.append(
+        self._append_event(
             format_sse_event(
                 "model.usage.estimated",
                 {
                     "project_id": project_id,
                     "task": task,
                     "provider": "deepseek",
-                    "model": self.settings.deepseek_model,
+                    "model": model,
                     "estimated_input_tokens": context_report.estimated_tokens,
                     "context_budget_tokens": context_report.budget_tokens,
                     "included_block_ids": context_report.included_block_ids,
@@ -609,6 +760,11 @@ class ChatToolbox:
                 },
             )
         )
+
+    def _model_name_for_task(self, task: str) -> str:
+        if task in {"build_book_index", "generate_script_yaml"}:
+            return self.settings.deepseek_fast_model
+        return self.settings.deepseek_model
 
     def _record_validation_outcome(
         self,
@@ -629,7 +785,7 @@ class ChatToolbox:
                 f"剧本 YAML 未通过 harness，已自动修复 {repair_attempt_count} 次，"
                 "当前结果已保存为 rejected draft。"
             )
-        self.events.append(
+        self._append_event(
             format_sse_event(
                 "validation.completed",
                 {
@@ -707,6 +863,17 @@ class ChatToolbox:
             payload=ChapterSplitConfirmationPayload.model_validate(record.payload_json),
             created_at=record.created_at,
             resolved_at=record.resolved_at,
+        )
+
+    @staticmethod
+    def _message_response(record: ChatMessageRecord) -> ChatMessageResponse:
+        return ChatMessageResponse(
+            id=record.id,
+            session_id=record.session_id,
+            role=cast(Literal["user", "assistant", "system", "tool"], record.role),
+            content=record.content,
+            metadata=record.metadata_json,
+            created_at=record.created_at,
         )
 
     def _title_prompt(self, file_name: str, source_text: str) -> str:

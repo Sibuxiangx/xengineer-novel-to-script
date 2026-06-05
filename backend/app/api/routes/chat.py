@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,8 +82,12 @@ async def create_chat_session(
 )
 async def list_chat_sessions(
     service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+    include_archived: Annotated[
+        bool,
+        Query(description="Whether to include archived sessions for workspace settings."),
+    ] = False,
 ) -> list[ChatSessionResponse]:
-    return await service.list_sessions()
+    return await service.list_sessions(include_archived=include_archived)
 
 
 @router.get(
@@ -100,6 +104,45 @@ async def get_chat_session_detail(
 ) -> ChatSessionDetailResponse:
     try:
         return await service.get_session_detail(session_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/archive",
+    response_model=ChatSessionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Archive a chat session",
+    description=(
+        "Archive a chat session so it disappears from the active conversation sidebar "
+        "without deleting its persisted messages, tool calls, or generated assets."
+    ),
+    responses={status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse}},
+)
+async def archive_chat_session(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ChatSessionResponse:
+    try:
+        return await service.archive_session(session_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/restore",
+    response_model=ChatSessionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Restore an archived chat session",
+    description="Restore an archived chat session so it reappears in the active sidebar list.",
+    responses={status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse}},
+)
+async def restore_chat_session(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ChatSessionResponse:
+    try:
+        return await service.restore_session(session_id)
     except ChatSessionNotFoundError as exc:
         raise _session_not_found(exc) from exc
 

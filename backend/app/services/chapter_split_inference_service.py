@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Literal
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,8 @@ from app.schemas.chapter_split import (
     TextPeekSample,
 )
 from app.services.chapter_splitter import ChapterSplitter, DetectedChapter
+
+StreamDeltaCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 BROAD_HEADING_PATTERN = re.compile(
     r"^\s*(第.{1,18}[章节回卷部篇]|chapter\s+\d+|book\s+\d+).{0,90}$",
@@ -49,6 +52,7 @@ class ChapterSplitInferenceService:
         self,
         project_id: str,
         request: ChapterSplitInferenceRequest,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> ChapterSplitInferenceResponse:
         project = await self.projects.get(project_id)
         if project is None:
@@ -56,7 +60,10 @@ class ChapterSplitInferenceService:
 
         samples = self._peek_samples(request.content, request.max_sample_chars)
         prompt = self._build_prompt(request.file_name, request.content, samples)
-        rule = await self.agent.infer_chapter_split_rule(prompt)
+        rule = await self.agent.infer_chapter_split_rule(
+            prompt,
+            stream_callback=self._phase_callback(stream_callback, "infer_rule"),
+        )
         iterations: list[ChapterSplitInferenceIteration] = []
         requested_contexts: list[RequestedContextSample] = []
 
@@ -71,7 +78,11 @@ class ChapterSplitInferenceService:
                     rule=rule,
                     preview=preview,
                     round_index=round_index,
-                )
+                ),
+                stream_callback=self._phase_callback(
+                    stream_callback,
+                    f"review_round_{round_index}",
+                ),
             )
             requested_contexts = self._requested_contexts(
                 request.content,
@@ -98,7 +109,11 @@ class ChapterSplitInferenceService:
                     preview=preview,
                     review=review,
                     requested_contexts=requested_contexts,
-                )
+                ),
+                stream_callback=self._phase_callback(
+                    stream_callback,
+                    f"revise_round_{round_index}",
+                ),
             )
 
         final_iteration = iterations[-1]
@@ -111,6 +126,19 @@ class ChapterSplitInferenceService:
             preview=final_iteration.preview,
             iterations=iterations,
         )
+
+    @staticmethod
+    def _phase_callback(
+        callback: StreamDeltaCallback | None,
+        phase: str,
+    ) -> StreamDeltaCallback | None:
+        if callback is None:
+            return None
+
+        async def wrapped(delta: dict[str, Any]) -> None:
+            await callback({"phase": phase, **delta})
+
+        return wrapped
 
     def _peek_samples(self, content: str, max_sample_chars: int) -> list[TextPeekSample]:
         normalized = content.replace("\r\n", "\n").replace("\r", "\n")

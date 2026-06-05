@@ -30,12 +30,13 @@ class ChatRunRecorder:
         self,
         chat_session: ChatSessionRecord,
         user_content: str,
+        user_metadata: dict[str, Any] | None = None,
     ) -> tuple[ChatRunRecord, ChatMessageRecord]:
         user_message = await self.add_message(
             session_id=chat_session.id,
             role=ChatMessageRole.user,
             content=user_content,
-            metadata=None,
+            metadata=user_metadata,
         )
         run = ChatRunRecord(
             id=f"run_{uuid4().hex[:12]}",
@@ -53,7 +54,7 @@ class ChatRunRecorder:
         run: ChatRunRecord,
         chat_session: ChatSessionRecord,
         content: str,
-    ) -> None:
+    ) -> ChatMessageRecord:
         assistant = await self.add_message(
             session_id=chat_session.id,
             role=ChatMessageRole.assistant,
@@ -64,6 +65,7 @@ class ChatRunRecorder:
         run.status = ChatRunStatus.completed.value
         await self.chat.touch_session(chat_session)
         await self.session.commit()
+        return assistant
 
     async def complete_run_with_errors(
         self,
@@ -71,7 +73,7 @@ class ChatRunRecorder:
         chat_session: ChatSessionRecord,
         content: str,
         error_message: str | None = None,
-    ) -> None:
+    ) -> ChatMessageRecord:
         assistant = await self.add_message(
             session_id=chat_session.id,
             role=ChatMessageRole.assistant,
@@ -83,6 +85,7 @@ class ChatRunRecorder:
         run.error_message = error_message
         await self.chat.touch_session(chat_session)
         await self.session.commit()
+        return assistant
 
     async def fail_run(self, run: ChatRunRecord, error_message: str) -> None:
         run.status = ChatRunStatus.failed.value

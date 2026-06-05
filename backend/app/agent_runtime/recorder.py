@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -13,6 +14,7 @@ from app.db.models import (
     ChatSessionRecord,
     ChatToolCallRecord,
     ChatToolCallStatus,
+    ModelUsageEventRecord,
 )
 from app.db.repositories.chat import ChatRepository
 
@@ -113,6 +115,7 @@ class ChatRunRecorder:
     ) -> None:
         tool.status = ChatToolCallStatus.completed.value
         tool.output_json = output_json
+        tool.updated_at = datetime.now(UTC)
         await self.session.commit()
 
     async def fail_tool(
@@ -122,6 +125,30 @@ class ChatRunRecorder:
     ) -> None:
         tool.status = ChatToolCallStatus.failed.value
         tool.error_message = error_message
+        tool.updated_at = datetime.now(UTC)
+        await self.session.commit()
+
+    async def record_model_usage(
+        self,
+        *,
+        project_id: str | None,
+        provider: str,
+        model: str,
+        estimated_input_tokens: int | None,
+        actual_input_tokens: int | None = None,
+        actual_output_tokens: int | None = None,
+    ) -> None:
+        self.session.add(
+            ModelUsageEventRecord(
+                id=f"usage_{uuid4().hex[:12]}",
+                project_id=project_id,
+                provider=provider,
+                model=model,
+                estimated_input_tokens=estimated_input_tokens,
+                actual_input_tokens=actual_input_tokens,
+                actual_output_tokens=actual_output_tokens,
+            )
+        )
         await self.session.commit()
 
     async def add_message(

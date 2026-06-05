@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import asyncio
+from collections.abc import AsyncIterator, Awaitable
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any, Literal, cast
 from uuid import uuid4
 
@@ -52,6 +55,11 @@ from app.services.script_service import (
     ScriptServiceProjectNotFoundError,
     ScriptVersionNotFoundError,
 )
+
+
+@dataclass(slots=True)
+class ObservedResult:
+    value: Any
 
 
 class ChatSessionNotFoundError(Exception):
@@ -274,10 +282,17 @@ class ChatAgentService:
             toolbox=toolbox,
         )
         try:
-            await self.agent.run_source_ingestion_tools(
-                self._source_ingestion_prompt(request),
-                deps=deps,
-            )
+            async for observed in self._observe_awaitable(
+                self.agent.run_source_ingestion_tools(
+                    self._source_ingestion_prompt(request),
+                    deps=deps,
+                ),
+                run_id=run.id,
+                stage="source_ingestion_agent",
+            ):
+                if isinstance(observed, ObservedResult):
+                    continue
+                yield observed
         except Exception:
             for event in toolbox.events:
                 yield event
@@ -321,10 +336,19 @@ class ChatAgentService:
             toolbox=toolbox,
         )
         try:
-            response = await self.agent.run_chat_instruction_tools(
-                self._chat_instruction_prompt(message, session.project_id),
-                deps=deps,
-            )
+            response = "已根据你的说明处理当前项目。"
+            async for observed in self._observe_awaitable(
+                self.agent.run_chat_instruction_tools(
+                    self._chat_instruction_prompt(message, session.project_id),
+                    deps=deps,
+                ),
+                run_id=run.id,
+                stage="chat_instruction_agent",
+            ):
+                if isinstance(observed, ObservedResult):
+                    response = cast(str, observed.value)
+                    continue
+                yield observed
         except Exception:
             for event in toolbox.events:
                 yield event
@@ -374,7 +398,14 @@ class ChatAgentService:
 
         toolbox = self._create_toolbox(session=session, run=run)
         try:
-            await toolbox.import_chapters(confirmation=confirmation, rule=rule)
+            async for observed in self._observe_awaitable(
+                toolbox.import_chapters(confirmation=confirmation, rule=rule),
+                run_id=run.id,
+                stage="import_chapters",
+            ):
+                if isinstance(observed, ObservedResult):
+                    continue
+                yield observed
         except Exception:
             for event in toolbox.events:
                 yield event
@@ -384,7 +415,14 @@ class ChatAgentService:
         event_offset = len(toolbox.events)
 
         try:
-            await toolbox.build_book_index(project_id, force_rebuild=True)
+            async for observed in self._observe_awaitable(
+                toolbox.build_book_index(project_id, force_rebuild=True),
+                run_id=run.id,
+                stage="build_book_index",
+            ):
+                if isinstance(observed, ObservedResult):
+                    continue
+                yield observed
         except Exception:
             for event in toolbox.events[event_offset:]:
                 yield event
@@ -394,7 +432,14 @@ class ChatAgentService:
         event_offset = len(toolbox.events)
 
         try:
-            await toolbox.generate_script_yaml(project_id, force_regenerate=True)
+            async for observed in self._observe_awaitable(
+                toolbox.generate_script_yaml(project_id, force_regenerate=True),
+                run_id=run.id,
+                stage="generate_script_yaml",
+            ):
+                if isinstance(observed, ObservedResult):
+                    continue
+                yield observed
         except Exception:
             for event in toolbox.events[event_offset:]:
                 yield event
@@ -468,6 +513,7 @@ class ChatAgentService:
         )
 
     def _tool_response(self, record: ChatToolCallRecord) -> ChatToolCallResponse:
+        duration_ms = int((record.updated_at - record.created_at).total_seconds() * 1000)
         return ChatToolCallResponse(
             id=record.id,
             session_id=record.session_id,
@@ -477,6 +523,7 @@ class ChatAgentService:
             input=record.input_json,
             output=record.output_json,
             error_message=record.error_message,
+            duration_ms=duration_ms,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
@@ -539,6 +586,66 @@ class ChatAgentService:
                 f"用户消息：{message}",
             ]
         )
+
+    async def _observe_awaitable(
+        self,
+        awaitable: Awaitable[Any],
+        *,
+        run_id: str,
+        stage: str,
+    ) -> AsyncIterator[str | ObservedResult]:
+        started_at = datetime.now(UTC)
+        yield self._event(
+            "run.progress",
+            {
+                "run_id": run_id,
+                "stage": stage,
+                "status": "started",
+                "started_at": started_at,
+            },
+        )
+        task = asyncio.ensure_future(awaitable)
+        started = monotonic()
+        try:
+            while not task.done():
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=self.settings.sse_heartbeat_interval_seconds,
+                )
+                if not done:
+                    yield self._event(
+                        "heartbeat",
+                        {
+                            "run_id": run_id,
+                            "stage": stage,
+                            "created_at": datetime.now(UTC),
+                        },
+                    )
+            value = task.result()
+        except Exception as exc:
+            duration_ms = int((monotonic() - started) * 1000)
+            yield self._event(
+                "run.progress",
+                {
+                    "run_id": run_id,
+                    "stage": stage,
+                    "status": "failed",
+                    "duration_ms": duration_ms,
+                    "message": str(exc),
+                },
+            )
+            raise
+        duration_ms = int((monotonic() - started) * 1000)
+        yield self._event(
+            "run.progress",
+            {
+                "run_id": run_id,
+                "stage": stage,
+                "status": "completed",
+                "duration_ms": duration_ms,
+            },
+        )
+        yield ObservedResult(value)
 
     def _event(self, name: str, data: dict[str, Any]) -> str:
         return format_sse_event(name, data)

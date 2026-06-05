@@ -396,6 +396,11 @@ class ChatToolbox:
                 context_report=index.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
+            await self._record_model_usage_estimate(
+                project_id=project_id,
+                task="build_book_index",
+                context_report=index.context_report,
+            )
             self.events.append(
                 format_sse_event(
                     "asset.updated",
@@ -441,6 +446,11 @@ class ChatToolbox:
                 context_report=script.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
+            await self._record_model_usage_estimate(
+                project_id=project_id,
+                task="generate_script_yaml",
+                context_report=script.context_report,
+            )
             self._record_validation_outcome(
                 project_id=project_id,
                 validation_status=script.validation_status,
@@ -503,6 +513,11 @@ class ChatToolbox:
                 context_report=edit.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
+            await self._record_model_usage_estimate(
+                project_id=project_id,
+                task="edit_script_yaml",
+                context_report=edit.context_report,
+            )
             self._record_validation_outcome(
                 project_id=project_id,
                 validation_status=edit.validation_status,
@@ -562,6 +577,37 @@ class ChatToolbox:
         await self.recorder.fail_tool(tool, error_message)
         self.events.append(
             format_sse_event("tool.call.failed", self._tool_response(tool).model_dump())
+        )
+
+    async def _record_model_usage_estimate(
+        self,
+        *,
+        project_id: str,
+        task: str,
+        context_report: ContextPackingReport | None,
+    ) -> None:
+        if context_report is None:
+            return
+        await self.recorder.record_model_usage(
+            project_id=project_id,
+            provider="deepseek",
+            model=self.settings.deepseek_model,
+            estimated_input_tokens=context_report.estimated_tokens,
+        )
+        self.events.append(
+            format_sse_event(
+                "model.usage.estimated",
+                {
+                    "project_id": project_id,
+                    "task": task,
+                    "provider": "deepseek",
+                    "model": self.settings.deepseek_model,
+                    "estimated_input_tokens": context_report.estimated_tokens,
+                    "context_budget_tokens": context_report.budget_tokens,
+                    "included_block_ids": context_report.included_block_ids,
+                    "omitted_block_ids": context_report.omitted_block_ids,
+                },
+            )
         )
 
     def _record_validation_outcome(
@@ -632,6 +678,7 @@ class ChatToolbox:
         return self.project_id
 
     def _tool_response(self, record: ChatToolCallRecord) -> ChatToolCallResponse:
+        duration_ms = int((record.updated_at - record.created_at).total_seconds() * 1000)
         return ChatToolCallResponse(
             id=record.id,
             session_id=record.session_id,
@@ -641,6 +688,7 @@ class ChatToolbox:
             input=record.input_json,
             output=record.output_json,
             error_message=record.error_message,
+            duration_ms=duration_ms,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )

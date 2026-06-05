@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -34,8 +35,13 @@ from app.services.chat_agent_service import (
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-def get_chat_agent(settings: Annotated[Settings, Depends(get_settings)]) -> ScreenplayAgent:
-    return ScreenplayAgent(settings)
+@lru_cache(maxsize=1)
+def get_process_screenplay_agent() -> ScreenplayAgent:
+    return ScreenplayAgent(get_settings())
+
+
+def get_chat_agent() -> ScreenplayAgent:
+    return get_process_screenplay_agent()
 
 
 def get_chat_agent_service(

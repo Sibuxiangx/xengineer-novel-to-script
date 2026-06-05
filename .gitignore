@@ -2,6 +2,11 @@
 node_modules/
 .pnp/
 .pnp.js
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
 
 # build outputs
 dist/
@@ -15,6 +20,11 @@ coverage/
 .env.*
 !.env.example
 
+# backend runtime data
+backend/data/
+*.sqlite
+*.sqlite3
+
 # logs
 *.log
 npm-debug.log*
@@ -23,4 +33,3 @@ pnpm-debug.log*
 
 # system files
 .DS_Store
-

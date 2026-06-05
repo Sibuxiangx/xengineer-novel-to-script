@@ -1,0 +1,2 @@
+"""FastAPI route registration package."""
+

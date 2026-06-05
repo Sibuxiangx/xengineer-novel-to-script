@@ -1,0 +1,83 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_env: str = Field("local", description="Runtime environment name.")
+    app_name: str = Field(
+        "XEngineer Novel-to-Script Backend",
+        description="Application name shown in OpenAPI and health responses.",
+    )
+    deepseek_api_key: SecretStr | None = Field(
+        default=None,
+        description="DeepSeek API key loaded from the local dotenv file.",
+    )
+    deepseek_base_url: str = Field(
+        "https://api.deepseek.com",
+        description="DeepSeek-compatible API base URL.",
+    )
+    deepseek_model: str = Field(
+        "deepseek-v4-pro",
+        description="Primary model name used by the screenplay agent.",
+    )
+    model_context_limit: int = Field(
+        1_000_000,
+        ge=1,
+        description="Configured context window used by token budgeting services.",
+    )
+    backend_cors_origins: str = Field(
+        "http://localhost:5173",
+        description="Comma-separated list of allowed frontend origins.",
+    )
+    sqlite_database_url: str = Field(
+        "sqlite+aiosqlite:///./data/app.db",
+        description="Async SQLAlchemy database URL for local SQLite storage.",
+    )
+    local_artifact_root: Path = Field(
+        Path("./data/projects"),
+        description="Root directory for project artifacts such as chapters and YAML files.",
+    )
+    database_echo: bool = Field(
+        False,
+        description="Enable SQLAlchemy SQL logging for local debugging.",
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.backend_cors_origins.split(",")
+            if origin.strip()
+        ]
+
+    @property
+    def sqlite_database_path(self) -> Path | None:
+        prefix = "sqlite+aiosqlite:///"
+        if not self.sqlite_database_url.startswith(prefix):
+            return None
+        path_value = self.sqlite_database_url.removeprefix(prefix)
+        if path_value == ":memory:":
+            return None
+        return Path(path_value)
+
+    def ensure_local_paths(self) -> None:
+        self.local_artifact_root.mkdir(parents=True, exist_ok=True)
+        database_path = self.sqlite_database_path
+        if database_path is not None:
+            database_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+

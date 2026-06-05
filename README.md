@@ -43,9 +43,38 @@
 
 ## 运行方式
 
-待项目技术栈确定后补充。
+### 后端
+
+后端使用 Python、uv、FastAPI、Pydantic、Pydantic AI、SQLAlchemy async、SQLite 与本地文件存储。
+
+```bash
+cd backend
+uv sync
+cp .env.example .env
+uv run fastapi dev app/main.py
+```
+
+启动后可访问：
+
+- API 文档：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/health`
+
+运行测试：
+
+```bash
+cd backend
+uv run pytest
+```
 
 ## 依赖说明
 
-待项目技术栈确定后补充。所有第三方依赖会在此处列明，并说明原创功能边界。
+当前后端依赖：
 
+- FastAPI：Web API 与自动化 OpenAPI 文档。
+- Pydantic / Pydantic Settings：请求、响应、配置与领域模型。
+- Pydantic AI：后续 Agent 编排核心。
+- SQLAlchemy async / aiosqlite：SQLite 异步数据访问。
+- python-dotenv：本地环境变量管理。
+- PyYAML：后续 YAML 解析、校验与导出。
+
+所有第三方依赖会持续在此处列明，并说明原创功能边界。

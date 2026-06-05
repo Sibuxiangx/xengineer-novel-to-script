@@ -1,0 +1,18 @@
+.sw-workspace-main {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sw-workspace-error {
+  margin: 12px 24px 0;
+}
+
+.sw-workspace-empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}

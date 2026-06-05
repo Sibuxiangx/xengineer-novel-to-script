@@ -1,0 +1,13 @@
+{
+  "name": "scriptweaver-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "frontend:dev": "pnpm --dir frontend dev",
+    "backend:dev": "cd backend && uv run fastapi dev app/main.py --host 127.0.0.1 --port 8000",
+    "typecheck": "pnpm --dir frontend typecheck && cd backend && uv run pyright",
+    "lint": "pnpm --dir frontend lint"
+  }
+}

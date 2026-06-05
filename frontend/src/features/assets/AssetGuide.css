@@ -1,0 +1,20 @@
+.sw-asset-guide {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.sw-asset-guide-card {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--sw-color-primary) 8%, transparent),
+    transparent
+  );
+  border: 1px dashed color-mix(in srgb, var(--sw-color-primary) 34%, var(--sw-color-border));
+  border-radius: 14px;
+}
+
+.sw-asset-guide-title {
+  margin-bottom: 4px !important;
+}

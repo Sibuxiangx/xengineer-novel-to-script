@@ -27,6 +27,7 @@ from app.schemas.book_index import BookIndex
 from app.schemas.screenplay import ScreenplayYaml
 from app.schemas.yaml_patch import YamlPatchOperation
 from app.services.validation_service import ValidationService
+from app.services.yaml_patch_service import YamlPatchApplier
 from app.storage.project_store import ProjectStore
 
 
@@ -62,6 +63,7 @@ class ScriptService:
         self.versions = ScriptVersionRepository(session)
         self.store = ProjectStore(settings.local_artifact_root)
         self.validation = ValidationService()
+        self.yaml_patches = YamlPatchApplier()
 
     async def validate_script(self, project_id: str, script_yaml: str) -> ScriptValidateResponse:
         project = await self.projects.get(project_id)
@@ -500,100 +502,7 @@ class ScriptService:
         current_yaml: str,
         operations: list[YamlPatchOperation],
     ) -> str:
-        document = yaml.safe_load(current_yaml)
-        if not isinstance(document, dict):
-            raise ScriptValidationRejectedError("Current script YAML is not a mapping.")
-        for operation in operations:
-            document = self._apply_operation(document, operation)
-        return yaml.safe_dump(document, allow_unicode=True, sort_keys=False)
-
-    def _apply_operation(self, document: dict, operation: YamlPatchOperation) -> dict:
-        if operation.type == "replace_script":
-            script = operation.payload.get("script")
-            if not isinstance(script, dict):
-                raise ScriptValidationRejectedError(
-                    "replace_script payload.script must be an object."
-                )
-            return script
-        if operation.type in {"patch_scene", "replace_scene"}:
-            scene = self._find_by_path(document, operation.target_path, group="scenes")
-            if operation.type == "replace_scene":
-                replacement = operation.payload.get("scene")
-                if not isinstance(replacement, dict):
-                    raise ScriptValidationRejectedError(
-                        "replace_scene payload.scene must be an object."
-                    )
-                scenes = document.get("scenes", [])
-                for index, item in enumerate(scenes):
-                    if item.get("id") == scene.get("id"):
-                        scenes[index] = replacement
-                        break
-            else:
-                self._deep_update(scene, operation.payload)
-            return document
-        if operation.type in {"insert_event", "patch_event", "delete_event"}:
-            return self._apply_event_operation(document, operation)
-        if operation.type == "repair_validation_errors":
-            return document
-        return document
-
-    def _apply_event_operation(self, document: dict, operation: YamlPatchOperation) -> dict:
-        if operation.type == "insert_event":
-            scene_id = self._parse_event_collection_path(operation.target_path)
-            scene = self._find_by_id(document.get("scenes", []), scene_id, "scene")
-            events = scene.setdefault("events", [])
-            event = operation.payload.get("event")
-            if not isinstance(event, dict):
-                raise ScriptValidationRejectedError("insert_event payload.event must be an object.")
-            insert_after = operation.payload.get("insert_after_event_id")
-            if isinstance(insert_after, str):
-                for index, item in enumerate(events):
-                    if item.get("id") == insert_after:
-                        events.insert(index + 1, event)
-                        return document
-            events.append(event)
-            return document
-
-        scene_id, event_id = self._parse_event_path(operation.target_path)
-        scene = self._find_by_id(document.get("scenes", []), scene_id, "scene")
-        events = scene.setdefault("events", [])
-        event = self._find_by_id(events, event_id, "event")
-        if operation.type == "delete_event":
-            scene["events"] = [item for item in events if item.get("id") != event_id]
-        elif operation.type == "patch_event":
-            self._deep_update(event, operation.payload)
-        return document
-
-    def _find_by_path(self, document: dict, target_path: str, group: str) -> dict:
-        parts = target_path.split(".")
-        if len(parts) < 2 or parts[0] != group:
-            raise ScriptValidationRejectedError(f"Unsupported target path: {target_path}")
-        return self._find_by_id(document.get(group, []), parts[1], group)
-
-    def _parse_event_path(self, target_path: str) -> tuple[str, str]:
-        parts = target_path.split(".")
-        if len(parts) != 4 or parts[0] != "scenes" or parts[2] != "events":
-            raise ScriptValidationRejectedError(f"Unsupported event target path: {target_path}")
-        return parts[1], parts[3]
-
-    def _parse_event_collection_path(self, target_path: str) -> str:
-        parts = target_path.split(".")
-        if len(parts) not in {3, 4} or parts[0] != "scenes" or parts[2] != "events":
-            raise ScriptValidationRejectedError(f"Unsupported event collection path: {target_path}")
-        return parts[1]
-
-    def _find_by_id(self, items: list[dict], item_id: str, group: str) -> dict:
-        for item in items:
-            if item.get("id") == item_id:
-                return item
-        raise ScriptValidationRejectedError(f"{group} not found: {item_id}")
-
-    def _deep_update(self, target: dict, patch: dict) -> None:
-        for key, value in patch.items():
-            if isinstance(value, dict) and isinstance(target.get(key), dict):
-                self._deep_update(target[key], value)
-            else:
-                target[key] = value
+        return self.yaml_patches.apply(current_yaml, operations)
 
     def _version_response(self, version: ScriptVersionRecord) -> ScriptVersionResponse:
         return ScriptVersionResponse(

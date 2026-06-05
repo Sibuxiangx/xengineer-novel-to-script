@@ -284,7 +284,7 @@ async def list_chat_session_script_versions(
     response_model=ScriptVersionDetailResponse,
     status_code=status.HTTP_200_OK,
     summary="Get a chat project screenplay version",
-    description="Return one accepted screenplay YAML version for the linked chat project.",
+    description="Return one screenplay YAML version or rejected draft for the linked chat project.",
     responses={
         status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
         status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},

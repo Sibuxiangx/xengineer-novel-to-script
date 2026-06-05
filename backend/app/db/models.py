@@ -26,6 +26,37 @@ class ValidationStatus(StrEnum):
     rejected = "rejected"
 
 
+class ChatSessionStatus(StrEnum):
+    active = "active"
+    archived = "archived"
+
+
+class ChatMessageRole(StrEnum):
+    user = "user"
+    assistant = "assistant"
+    system = "system"
+    tool = "tool"
+
+
+class ChatRunStatus(StrEnum):
+    running = "running"
+    waiting_confirmation = "waiting_confirmation"
+    completed = "completed"
+    failed = "failed"
+
+
+class ChatToolCallStatus(StrEnum):
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+
+
+class ChatConfirmationStatus(StrEnum):
+    pending = "pending"
+    confirmed = "confirmed"
+    cancelled = "cancelled"
+
+
 class ProjectRecord(Base):
     __tablename__ = "projects"
 
@@ -129,3 +160,101 @@ class ModelUsageEventRecord(Base):
     actual_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     actual_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ChatSessionRecord(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ChatSessionStatus.active.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ChatMessageRecord(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ChatRunRecord(Base):
+    __tablename__ = "chat_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ChatRunStatus.running.value,
+    )
+    user_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_messages.id"),
+        nullable=True,
+    )
+    assistant_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chat_messages.id"),
+        nullable=True,
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ChatToolCallRecord(Base):
+    __tablename__ = "chat_tool_calls"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    run_id: Mapped[str] = mapped_column(ForeignKey("chat_runs.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ChatToolCallStatus.running.value,
+    )
+    input_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    output_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
+class ChatConfirmationRecord(Base):
+    __tablename__ = "chat_confirmations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=ChatConfirmationStatus.pending.value,
+    )
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -31,6 +31,22 @@ class ProjectStore:
         if path.exists():
             rmtree(path)
 
+    def source_root(self, project_id: str) -> Path:
+        path = self.ensure_project_root(project_id) / "source"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def source_text_path(self, project_id: str, file_name: str) -> Path:
+        safe_name = Path(file_name).name or "novel.txt"
+        if not safe_name.endswith(".txt"):
+            safe_name = f"{safe_name}.txt"
+        return self.source_root(project_id) / safe_name
+
+    def write_source_text(self, project_id: str, file_name: str, content: str) -> Path:
+        path = self.source_text_path(project_id, file_name)
+        path.write_text(content, encoding="utf-8")
+        return path
+
     def chapter_path(self, project_id: str, order_index: int, chapter_id: str) -> Path:
         filename = f"{order_index + 1:03d}-{chapter_id}.txt"
         return self.ensure_chapters_root(project_id) / filename

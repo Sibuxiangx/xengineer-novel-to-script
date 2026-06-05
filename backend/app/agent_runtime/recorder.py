@@ -96,6 +96,15 @@ class ChatRunRecorder:
         tool.output_json = output_json
         await self.session.commit()
 
+    async def fail_tool(
+        self,
+        tool: ChatToolCallRecord,
+        error_message: str,
+    ) -> None:
+        tool.status = ChatToolCallStatus.failed.value
+        tool.error_message = error_message
+        await self.session.commit()
+
     async def add_message(
         self,
         session_id: str,

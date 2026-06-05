@@ -3,12 +3,21 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
+from app.agent_runtime.chat_toolbox import (
+    ChapterSplitProposedToolResult,
+    ConfirmationRequestedToolResult,
+    ProjectCreatedToolResult,
+)
 from app.agents import screenplay_agent as screenplay_agent_module
 from app.agents.deps import AgentDeps
 from app.agents.screenplay_agent import ScreenplayAgent
+from app.api.models.projects import ChapterSplitInferencePreview
 from app.api.routes import chat as chat_routes
 from app.core.config import Settings
+from app.schemas.chapter_split import ChapterSplitRule
 from app.schemas.chat import ProjectTitleSuggestion
 
 
@@ -112,3 +121,99 @@ async def test_screenplay_agent_reuses_model_and_base_agent(
     assert [call["prompt"] for call in run_calls] == ["第一次调用", "第二次调用"]
     assert all(call["deps"].settings is agent.settings for call in run_calls)
     assert all("推导一个简洁" in call["instructions"] for call in run_calls)
+
+
+@pytest.mark.asyncio
+async def test_source_ingestion_tool_agent_uses_pydantic_tool_calls() -> None:
+    async def scripted_model(
+        messages: list[ModelMessage],
+        info: AgentInfo,
+    ) -> ModelResponse:
+        returned_tools = [
+            part
+            for message in messages
+            for part in message.parts
+            if part.part_kind == "tool-return"
+        ]
+        assert {tool.name for tool in info.function_tools} >= {
+            "propose_project_title",
+            "create_project",
+            "propose_chapter_split",
+            "request_chapter_split_confirmation",
+        }
+        match len(returned_tools):
+            case 0:
+                return ModelResponse([ToolCallPart("propose_project_title", {})])
+            case 1:
+                return ModelResponse([ToolCallPart("create_project", {"title": "雾港来信改编"})])
+            case 2:
+                return ModelResponse([ToolCallPart("propose_chapter_split", {})])
+            case 3:
+                return ModelResponse([ToolCallPart("request_chapter_split_confirmation", {})])
+            case _:
+                return ModelResponse([TextPart("已创建分章确认。")])
+
+    class FakeToolbox:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.project_id: str | None = None
+
+        async def propose_project_title(self) -> ProjectTitleSuggestion:
+            self.calls.append("propose_project_title")
+            return ProjectTitleSuggestion(title="雾港来信改编", reason="测试标题。")
+
+        async def create_project(self, title: str) -> ProjectCreatedToolResult:
+            self.calls.append(f"create_project:{title}")
+            self.project_id = "proj_test"
+            return ProjectCreatedToolResult(
+                project_id="proj_test",
+                title=title,
+                source_text_path="/tmp/source.txt",
+            )
+
+        async def propose_chapter_split(self) -> ChapterSplitProposedToolResult:
+            self.calls.append("propose_chapter_split")
+            return ChapterSplitProposedToolResult(
+                rule=ChapterSplitRule(
+                    strategy="line_regex",
+                    heading_regex=r"^第.+章.*$",
+                    title_source="full_line",
+                    confidence=0.9,
+                    reason="测试规则。",
+                    examples=["第一章 雾港来信"],
+                ),
+                preview=ChapterSplitInferencePreview(
+                    chapter_count=1,
+                    titles=["第一章 雾港来信"],
+                    last_titles=["第一章 雾港来信"],
+                    candidate_heading_count=1,
+                    unmatched_candidate_count=0,
+                    unmatched_candidates=[],
+                ),
+                iteration_count=1,
+            )
+
+        async def request_chapter_split_confirmation(self) -> ConfirmationRequestedToolResult:
+            self.calls.append("request_chapter_split_confirmation")
+            return ConfirmationRequestedToolResult(
+                confirmation_id="confirm_test",
+                prompt="请确认当前分章预览。",
+                chapter_count=1,
+            )
+
+    toolbox = FakeToolbox()
+    agent = ScreenplayAgent(make_settings())
+    agent._model = FunctionModel(scripted_model)  # pyright: ignore[reportPrivateUsage]
+
+    result = await agent.run_source_ingestion_tools(
+        "用户上传了小说 TXT 原文。",
+        deps=AgentDeps(settings=agent.settings, toolbox=toolbox),
+    )
+
+    assert result == "已创建分章确认。"
+    assert toolbox.calls == [
+        "propose_project_title",
+        "create_project:雾港来信改编",
+        "propose_chapter_split",
+        "request_chapter_split_confirmation",
+    ]

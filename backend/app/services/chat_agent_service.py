@@ -7,8 +7,10 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent_runtime.chat_toolbox import ChatToolbox
 from app.agent_runtime.events import format_sse_event
 from app.agent_runtime.recorder import ChatRunRecorder
+from app.agents.deps import AgentDeps
 from app.agents.screenplay_agent import ScreenplayAgent
 from app.api.models.book_index import BookIndexResponse
 from app.api.models.chat import (
@@ -24,10 +26,6 @@ from app.api.models.chat import (
 )
 from app.api.models.projects import (
     ChapterListResponse,
-    ChapterSplitInferencePreview,
-    ChapterSplitInferenceRequest,
-    ProjectCreateRequest,
-    TxtEbookImportRequest,
 )
 from app.api.models.scripts import ScriptVersionDetailResponse, ScriptVersionListResponse
 from app.core.config import Settings
@@ -35,9 +33,7 @@ from app.db.models import (
     ChatConfirmationRecord,
     ChatConfirmationStatus,
     ChatMessageRecord,
-    ChatMessageRole,
     ChatRunRecord,
-    ChatRunStatus,
     ChatSessionRecord,
     ChatSessionStatus,
     ChatToolCallRecord,
@@ -45,20 +41,17 @@ from app.db.models import (
 from app.db.repositories.chat import ChatRepository
 from app.db.repositories.script_versions import ScriptVersionRepository
 from app.schemas.chapter_split import ChapterSplitRule
-from app.schemas.chat import ProjectTitleSuggestion
 from app.services.book_index_service import (
     BookIndexNotFoundError,
     BookIndexService,
     BookIndexServiceProjectNotFoundError,
 )
-from app.services.chapter_split_inference_service import ChapterSplitInferenceService
 from app.services.project_service import ProjectNotFoundError, ProjectService
 from app.services.script_service import (
     ScriptService,
     ScriptServiceProjectNotFoundError,
     ScriptVersionNotFoundError,
 )
-from app.storage.project_store import ProjectStore
 
 
 class ChatSessionNotFoundError(Exception):
@@ -95,7 +88,6 @@ class ChatAgentService:
         self.chat = ChatRepository(session)
         self.recorder = ChatRunRecorder(session=session, chat=self.chat)
         self.versions = ScriptVersionRepository(session)
-        self.store = ProjectStore(settings.local_artifact_root)
 
     async def create_session(self, request: ChatSessionCreateRequest) -> ChatSessionResponse:
         record = ChatSessionRecord(
@@ -267,129 +259,33 @@ class ChatAgentService:
         run: ChatRunRecord,
         request: ChatRunStreamRequest,
     ) -> AsyncIterator[str]:
-        file_name = request.source_file_name or "novel.txt"
-        source_text = request.source_text or ""
-
         yield self._event("message.delta", {"content": "已收到小说文本，开始识别项目与分章方式。"})
-        title_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="infer_project_title",
-            input_json={
-                "file_name": file_name,
-                "text_length": len(source_text),
-            },
-        )
-        yield self._event("tool.call.started", self._tool_response(title_tool).model_dump())
-        title = await self.agent.infer_project_title(self._title_prompt(file_name, source_text))
-        await self.recorder.complete_tool(
-            title_tool,
-            {
-                "title": title.title,
-                "reason": title.reason,
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(title_tool).model_dump())
-
-        project_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="create_project",
-            input_json={
-                "title": title.title,
-                "screenplay_format": request.screenplay_format,
-            },
-        )
-        yield self._event("tool.call.started", self._tool_response(project_tool).model_dump())
-        project_service = ProjectService(self.session, self.settings)
-        project = await project_service.create_project(
-            ProjectCreateRequest(
-                title=title.title,
-                screenplay_format=request.screenplay_format,
-            )
-        )
-        source_path = self.store.write_source_text(project.id, file_name, source_text)
-        session.project_id = project.id
-        session.title = project.title
-        await self.chat.touch_session(session)
-        await self.recorder.complete_tool(
-            project_tool,
-            {
-                "project_id": project.id,
-                "title": project.title,
-                "source_text_path": str(source_path),
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(project_tool).model_dump())
-        yield self._event(
-            "asset.updated",
-            {
-                "asset": "project",
-                "project_id": project.id,
-                "title": project.title,
-            },
-        )
-
-        split_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="infer_chapter_split_rule",
-            input_json={
-                "project_id": project.id,
-                "file_name": file_name,
-                "text_length": len(source_text),
-            },
-        )
-        yield self._event("tool.call.started", self._tool_response(split_tool).model_dump())
-        split_service = ChapterSplitInferenceService(self.session, self.settings, self.agent)
-        inference = await split_service.infer_rule(
-            project.id,
-            ChapterSplitInferenceRequest(
-                file_name=file_name,
-                content=source_text,
-                max_sample_chars=5000,
-                max_review_rounds=2,
-                context_window_chars=1200,
-            ),
-        )
-        split_summary = {
-            "rule": inference.rule.model_dump(mode="json"),
-            "preview": inference.preview.model_dump(mode="json"),
-            "iteration_count": len(inference.iterations),
-        }
-        await self.recorder.complete_tool(split_tool, split_summary)
-        yield self._event("tool.call.completed", self._tool_response(split_tool).model_dump())
-
-        confirmation = await self._create_chapter_split_confirmation(
+        toolbox = self._create_toolbox(
             session=session,
-            project_id=project.id,
-            file_name=file_name,
-            source_text_path=str(source_path),
-            text_length=len(source_text),
-            rule=inference.rule,
-            preview=inference.preview,
+            run=run,
+            source_file_name=request.source_file_name,
+            source_text=request.source_text,
+            screenplay_format=request.screenplay_format,
         )
-        run.status = ChatRunStatus.waiting_confirmation.value
-        assistant = await self.recorder.add_message(
+        deps = AgentDeps(
+            settings=self.settings,
             session_id=session.id,
-            role=ChatMessageRole.assistant,
-            content=(
-                f"我推导出《{project.title}》的分章方式，预览得到 "
-                f"{inference.preview.chapter_count} 个章节。请确认分章后，"
-                "我会继续生成剧情索引和剧本 YAML。"
-            ),
-            metadata={"confirmation_id": confirmation.id, "kind": confirmation.kind},
+            project_id=session.project_id,
+            toolbox=toolbox,
         )
-        run.assistant_message_id = assistant.id
-        await self.session.commit()
-        yield self._event(
-            "tool.confirm.required",
-            self._confirmation_response(confirmation).model_dump(mode="json"),
-        )
-        yield self._event(
-            "run.waiting_confirmation",
-            {"run_id": run.id, "confirmation_id": confirmation.id},
-        )
+        try:
+            await self.agent.run_source_ingestion_tools(
+                self._source_ingestion_prompt(request),
+                deps=deps,
+            )
+        except Exception:
+            for event in toolbox.events:
+                yield event
+            raise
+        if toolbox.pending_confirmation_id is None:
+            raise RuntimeError("Agent did not create the required chapter split confirmation.")
+        for event in toolbox.events:
+            yield event
 
     async def _stream_chat_instruction(
         self,
@@ -417,41 +313,28 @@ class ChatAgentService:
             yield self._event("run.completed", {"run_id": run.id})
             return
 
-        edit_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="edit_script_yaml",
-            input_json={"project_id": session.project_id, "instruction": message},
-        )
-        yield self._event("tool.call.started", self._tool_response(edit_tool).model_dump())
-        script_service = ScriptService(self.session, self.settings, self.agent)
-        edit = await script_service.edit_script(
+        toolbox = self._create_toolbox(session=session, run=run)
+        deps = AgentDeps(
+            settings=self.settings,
+            session_id=session.id,
             project_id=session.project_id,
-            instruction=message,
-            target_path=None,
+            toolbox=toolbox,
         )
-        await self.recorder.complete_tool(
-            edit_tool,
-            {
-                "accepted_version_id": edit.accepted_version_id,
-                "operation_count": len(edit.operations),
-                "accepted": edit.validation_report.accepted,
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(edit_tool).model_dump())
-        yield self._event(
-            "asset.updated",
-            {
-                "asset": "script_yaml",
-                "project_id": session.project_id,
-                "accepted_version_id": edit.accepted_version_id,
-                "validation_report": edit.validation_report.model_dump(mode="json"),
-            },
-        )
+        try:
+            response = await self.agent.run_chat_instruction_tools(
+                self._chat_instruction_prompt(message, session.project_id),
+                deps=deps,
+            )
+        except Exception:
+            for event in toolbox.events:
+                yield event
+            raise
+        for event in toolbox.events:
+            yield event
         await self.recorder.complete_run(
             run=run,
             chat_session=session,
-            content="已根据你的说明修改剧本 YAML，并通过 harness 返回新的校验结果。",
+            content=response or "已根据你的说明处理当前项目。",
         )
         yield self._event("run.completed", {"run_id": run.id})
 
@@ -464,103 +347,39 @@ class ChatAgentService:
     ) -> AsyncIterator[str]:
         payload = ChapterSplitConfirmationPayload.model_validate(confirmation.payload_json)
         rule = edited_rule or payload.rule
-        source_text = self.store.read_text(payload.source_text_path)
         project_id = confirmation.project_id
         if project_id is None:
             raise ChatConfirmationStateError("Chapter split confirmation has no project_id.")
 
-        import_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="confirm_chapter_split",
-            input_json={
-                "project_id": project_id,
-                "file_name": payload.file_name,
-                "rule": rule.model_dump(mode="json"),
-            },
-        )
-        yield self._event("tool.call.started", self._tool_response(import_tool).model_dump())
-        project_service = ProjectService(self.session, self.settings)
-        imported = await project_service.import_txt_ebook(
-            project_id,
-            TxtEbookImportRequest(
-                file_name=payload.file_name,
-                content=source_text,
-                split_strategy="custom_rule",
-                chapter_split_rule=rule,
-                replace_existing=True,
-            ),
-        )
-        confirmation.status = ChatConfirmationStatus.confirmed.value
-        confirmation.resolved_at = datetime.now(UTC)
-        await self.recorder.complete_tool(
-            import_tool,
-            {
-                "chapter_count": imported.detected_chapter_count,
-                "split_strategy": imported.split_strategy,
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(import_tool).model_dump())
-        yield self._event(
-            "asset.updated",
-            {
-                "asset": "chapters",
-                "project_id": project_id,
-                "chapter_count": imported.detected_chapter_count,
-            },
-        )
+        toolbox = self._create_toolbox(session=session, run=run)
+        try:
+            await toolbox.import_chapters(confirmation=confirmation, rule=rule)
+        except Exception:
+            for event in toolbox.events:
+                yield event
+            raise
+        for event in toolbox.events:
+            yield event
+        event_offset = len(toolbox.events)
 
-        index_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="build_book_index",
-            input_json={"project_id": project_id, "force_rebuild": True},
-        )
-        yield self._event("tool.call.started", self._tool_response(index_tool).model_dump())
-        index_service = BookIndexService(self.session, self.settings, self.agent)
-        index = await index_service.build_index(project_id, force_rebuild=True)
-        await self.recorder.complete_tool(
-            index_tool,
-            {
-                "file_path": index.file_path,
-                "chapter_count": index.book_index.chapter_count,
-                "character_count": len(index.book_index.characters),
-                "location_count": len(index.book_index.locations),
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(index_tool).model_dump())
-        yield self._event(
-            "asset.updated",
-            {"asset": "book_index", "project_id": project_id, "file_path": index.file_path},
-        )
+        try:
+            await toolbox.build_book_index(project_id, force_rebuild=True)
+        except Exception:
+            for event in toolbox.events[event_offset:]:
+                yield event
+            raise
+        for event in toolbox.events[event_offset:]:
+            yield event
+        event_offset = len(toolbox.events)
 
-        script_tool = await self.recorder.start_tool(
-            chat_session=session,
-            run=run,
-            name="generate_script_yaml",
-            input_json={"project_id": project_id, "force_regenerate": True},
-        )
-        yield self._event("tool.call.started", self._tool_response(script_tool).model_dump())
-        script_service = ScriptService(self.session, self.settings, self.agent)
-        script = await script_service.generate_script(project_id, force_regenerate=True)
-        await self.recorder.complete_tool(
-            script_tool,
-            {
-                "accepted_version_id": script.accepted_version_id,
-                "accepted": script.validation_report.accepted,
-                "severity": script.validation_report.severity,
-            },
-        )
-        yield self._event("tool.call.completed", self._tool_response(script_tool).model_dump())
-        yield self._event(
-            "asset.updated",
-            {
-                "asset": "script_yaml",
-                "project_id": project_id,
-                "accepted_version_id": script.accepted_version_id,
-                "validation_report": script.validation_report.model_dump(mode="json"),
-            },
-        )
+        try:
+            await toolbox.generate_script_yaml(project_id, force_regenerate=True)
+        except Exception:
+            for event in toolbox.events[event_offset:]:
+                yield event
+            raise
+        for event in toolbox.events[event_offset:]:
+            yield event
         await self.recorder.complete_run(
             run=run,
             chat_session=session,
@@ -570,36 +389,6 @@ class ChatAgentService:
             ),
         )
         yield self._event("run.completed", {"run_id": run.id})
-
-    async def _create_chapter_split_confirmation(
-        self,
-        session: ChatSessionRecord,
-        project_id: str,
-        file_name: str,
-        source_text_path: str,
-        text_length: int,
-        rule: ChapterSplitRule,
-        preview: ChapterSplitInferencePreview,
-    ) -> ChatConfirmationRecord:
-        payload = ChapterSplitConfirmationPayload(
-            file_name=file_name,
-            source_text_path=source_text_path,
-            text_length=text_length,
-            rule=rule,
-            preview=preview,
-        )
-        confirmation = ChatConfirmationRecord(
-            id=f"confirm_{uuid4().hex[:12]}",
-            session_id=session.id,
-            project_id=project_id,
-            kind="chapter_split",
-            status=ChatConfirmationStatus.pending.value,
-            prompt="请确认当前分章预览。确认后我会继续构建剧情索引并生成剧本 YAML。",
-            payload_json=payload.model_dump(mode="json"),
-        )
-        await self.chat.add_confirmation(confirmation)
-        await self.session.commit()
-        return confirmation
 
     async def _require_session(self, session_id: str) -> ChatSessionRecord:
         session = await self.chat.get_session(session_id)
@@ -665,25 +454,46 @@ class ChatAgentService:
             resolved_at=record.resolved_at,
         )
 
-    def _title_prompt(self, file_name: str, source_text: str) -> str:
-        normalized = source_text.replace("\r\n", "\n").replace("\r", "\n")
-        head = normalized[:3000]
-        tail = normalized[-1200:] if len(normalized) > 4200 else ""
-        suggestion = ProjectTitleSuggestion(
-            title="标题格式示例",
-            reason="示例仅用于说明输出结构。",
+    def _create_toolbox(
+        self,
+        session: ChatSessionRecord,
+        run: ChatRunRecord,
+        source_file_name: str | None = None,
+        source_text: str | None = None,
+        screenplay_format: str = "short_drama",
+    ) -> ChatToolbox:
+        return ChatToolbox(
+            db_session=self.session,
+            settings=self.settings,
+            agent=self.agent,
+            chat=self.chat,
+            recorder=self.recorder,
+            chat_session=session,
+            run=run,
+            source_file_name=source_file_name,
+            source_text=source_text,
+            screenplay_format=screenplay_format,
         )
-        return "\n\n".join(
+
+    def _source_ingestion_prompt(self, request: ChatRunStreamRequest) -> str:
+        file_name = request.source_file_name or "novel.txt"
+        source_text = request.source_text or ""
+        return "\n".join(
             [
-                "请为这份小说改编任务推导项目名。",
+                "用户上传了小说 TXT 原文，请按工具编排要求完成项目创建和分章确认。",
+                f"用户消息：{request.message}",
                 f"文件名：{file_name}",
                 f"全文字符数：{len(source_text)}",
-                "输出结构示例：",
-                suggestion.model_dump_json(ensure_ascii=False),
-                "正文开头：",
-                head,
-                "正文结尾：" if tail else "",
-                tail,
+                f"目标剧本格式：{request.screenplay_format}",
+            ]
+        )
+
+    def _chat_instruction_prompt(self, message: str, project_id: str) -> str:
+        return "\n".join(
+            [
+                "用户正在和已有小说改编项目对话，请根据意图选择合适工具。",
+                f"项目 ID：{project_id}",
+                f"用户消息：{message}",
             ]
         )
 

@@ -39,9 +39,24 @@
 
 ## 当前状态
 
-仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、剧本 YAML 生成、harness 校验、局部编辑、修复、版本管理与导出闭环，并新增面向 Chat 产品形态的 Agent 会话、SSE 工具调用流与用户确认点。
+仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、剧本 YAML 生成、harness 校验、局部编辑、修复、版本管理与导出闭环，并新增面向 Chat 产品形态的 Agent 会话、SSE 工具调用流与用户确认点。当前前端已基于 Ant Design X 重建为三栏 Chat Agent 产品形态：左侧项目会话、中间上传/对话与工具调用轨迹、右侧章节/索引/YAML/校验/版本资产栏。
 
 ## 运行方式
+
+### 一键启动开发环境
+
+需要同时查看前端并调用本地后端时，可以在仓库根目录执行：
+
+```bash
+./scripts/dev.sh
+```
+
+默认启动地址：
+
+- 前端：`http://localhost:5173`
+- 后端：`http://127.0.0.1:8000`
+
+脚本会自动导出 `VITE_API_BASE_URL=http://127.0.0.1:8000`，并在退出时同时停止前后端进程。如果首次运行缺少 `backend/.env`、`backend/.venv` 或 `frontend/node_modules`，脚本会补齐基础本地环境。
 
 ### 后端
 
@@ -68,6 +83,10 @@ uv run fastapi dev app/main.py
 3. `GET /chat/sessions/{session_id}` 获取消息、待确认项和最近剧本版本。
 4. `POST /chat/sessions/{session_id}/runs/stream` 通过 SSE 发送用户消息。上传或粘贴 TXT 后，后端会依次推导项目名、创建项目、推导分章规则，并返回 `tool.confirm.required` 等待用户确认。
 5. `POST /chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 通过 SSE 处理确认。确认分章后，后端会自动导入章节、生成 `book_index.json`、生成并校验 `script.yaml`，并通过 `asset.updated` 通知前端刷新右侧资产栏。
+6. `GET /chat/sessions/{session_id}/assets/chapters` 读取会话项目的章节资产。
+7. `GET /chat/sessions/{session_id}/assets/book-index` 读取会话项目的 `book_index.json`。
+8. `GET /chat/sessions/{session_id}/assets/scripts/versions` 读取会话项目的已接受 YAML 版本列表。
+9. `GET /chat/sessions/{session_id}/assets/scripts/versions/{version_id}` 读取某个 YAML 版本详情。
 
 SSE 事件类型：
 
@@ -79,30 +98,13 @@ SSE 事件类型：
 - `run.waiting_confirmation` / `run.completed`：执行暂停或完成。
 - `error`：可展示错误，不用静态兜底冒充成功。
 
-底层 API 仍可独立调用，方便测试、调试和前端资产面板读取：
-
-1. `POST /projects` 创建改编项目。
-2. `POST /projects/{project_id}/ebook/import-txt` 导入 TXT 正文并自动分章。
-3. `POST /projects/{project_id}/ebook/infer-split-rule` 通过 Agent 推导、检查并修订长篇 TXT 分章规则。
-4. `GET /projects/{project_id}/chapters` 查看导入后的章节。
-5. `PATCH /projects/{project_id}/chapters/{chapter_id}` 手动编辑章节标题或正文。
-6. `POST /projects/{project_id}/book-index` 调用 DeepSeek Agent 生成 `book_index.json`。
-7. `GET /projects/{project_id}/book-index` 读取已生成的剧情索引。
-8. `POST /projects/{project_id}/scripts/generate` 基于章节与 `book_index.json` 生成 `script.yaml`。
-9. `POST /projects/{project_id}/scripts/validate` 使用 harness 校验剧本 YAML。
-10. `POST /projects/{project_id}/scripts/edit` 通过结构化 YAML patch 局部编辑当前剧本。
-11. `POST /projects/{project_id}/scripts/repair` 根据 harness 错误修复未通过校验的 YAML。
-12. `GET /projects/{project_id}/scripts/versions` 查看通过校验并保存的剧本版本。
-13. `GET /projects/{project_id}/scripts/versions/{version_id}` 查看某个版本的 YAML。
-14. `POST /projects/{project_id}/scripts/versions/{version_id}/restore` 回滚到某个已接受版本。
-15. `GET /projects/{project_id}/scripts/exports/script.yaml` 导出当前剧本 YAML。
-16. `GET /projects/{project_id}/scripts/exports/screenplay-schema.json` 导出剧本 JSON Schema。
+产品 API 已完成减法：前端只应使用 `/health` 与 `/chat/**`。项目、分章、索引、剧本生成、校验、编辑、修复和版本管理仍由后端 service 层保留，但不再作为公开底层 router 暴露给产品前端。
 
 分章规则：
 
 - 能识别类似 `第一章 标题`、`第1章 标题`、`Chapter 1` 的章节标题。
 - 如果短篇文本没有分章标题，会保存为单章 `全文`，用户后续仍可手动编辑。
-- 对于超长 TXT，可先使用 Agent 分章推导接口：本地抽取 head / middle / tail 片段，LLM 生成标题行规则，本地切分全文，LLM 检查统计与疑似漏切标题，必要时请求问题上下文并重写规则。
+- 对于超长 TXT，Chat Agent 会在内部执行分章推导：本地抽取 head / middle / tail 片段，LLM 生成标题行规则，本地切分全文，LLM 检查统计与疑似漏切标题，必要时请求问题上下文并重写规则。
 - Agent 请求的上下文会被后端按预算裁剪，避免把整本书或大段文本重新发送给模型。
 
 AI 能力说明：
@@ -136,6 +138,39 @@ uv run python -m app.tools.deepseek_smoke
 
 该命令会读取 `.env` 中的 `DEEPSEEK_API_KEY`，使用临时 SQLite 与临时 artifacts 完成“创建项目 -> 导入三章短文 -> 生成 book_index.json -> 生成 script.yaml -> harness 校验并保存版本”的真实链路。默认不会保留运行产物；需要保留时可执行 `uv run python -m app.tools.deepseek_smoke --keep-artifacts`，产物会写入已被 git 忽略的 `backend/data/deepseek-smoke/`。
 
+### 前端
+
+前端使用 React、TypeScript、Vite、pnpm、Ant Design X、Ant Design、TanStack Query、React Router 与 Monaco Editor。
+
+```bash
+cd frontend
+pnpm install
+cp .env.example .env
+pnpm dev
+```
+
+前端默认读取 `VITE_API_BASE_URL=http://127.0.0.1:8000`。当前界面主流程：
+
+1. 打开产品后，中间显示上传/粘贴小说的对话入口。
+2. 用户上传或粘贴 TXT，前端通过 POST SSE 调用 `/chat/sessions/{session_id}/runs/stream`。
+3. 对话流通过 Ant Design X `Bubble.List` 展示 Agent 消息、工具调用开始/完成、资产更新和分章确认点。
+4. 用户在分章确认面板中查看预览、可编辑标题正则，并确认继续。
+5. 确认后前端通过 `/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 继续接收导入章节、构建索引、生成 YAML 与校验结果。
+6. 右侧资产栏常驻展示章节、`book_index.json`、`script.yaml`、harness 报告和版本记录。
+
+前端质量检查：
+
+```bash
+cd frontend
+pnpm lint
+pnpm build
+```
+
+设计规范：
+
+- `DESIGN.md`：当前 UI 的 Ant Design X 组件映射和设计约束。
+- `.impeccable.md`：产品用户、语气和设计原则上下文。
+
 ## 依赖说明
 
 当前后端依赖：
@@ -154,5 +189,15 @@ uv run python -m app.tools.deepseek_smoke
 - httpx：FastAPI 测试客户端。
 - Ruff：Python lint 与导入检查。
 - Pyright：Python 静态类型检查。
+
+当前前端依赖：
+
+- React / TypeScript / Vite：前端开发与构建。
+- pnpm：前端依赖管理。
+- Ant Design X：AI 对话界面组件，包括 `Bubble.List`、`Sender`、`Attachments`、`Conversations`、`Welcome`、`Prompts`、`ThoughtChain`。
+- Ant Design / `@ant-design/icons`：通用产品组件、图标、主题和资产侧边栏。
+- TanStack Query：接口请求状态与缓存。
+- React Router：前端路由入口。
+- Monaco Editor：剧本 YAML 查看器。
 
 所有第三方依赖会持续在此处列明，并说明原创功能边界。

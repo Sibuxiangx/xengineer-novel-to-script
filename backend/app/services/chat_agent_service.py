@@ -10,6 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.screenplay_agent import ScreenplayAgent
+from app.api.models.book_index import BookIndexResponse
 from app.api.models.chat import (
     ChapterSplitConfirmationPayload,
     ChatConfirmationActionRequest,
@@ -22,11 +23,13 @@ from app.api.models.chat import (
     ChatToolCallResponse,
 )
 from app.api.models.projects import (
+    ChapterListResponse,
     ChapterSplitInferencePreview,
     ChapterSplitInferenceRequest,
     ProjectCreateRequest,
     TxtEbookImportRequest,
 )
+from app.api.models.scripts import ScriptVersionDetailResponse, ScriptVersionListResponse
 from app.core.config import Settings
 from app.db.models import (
     ChatConfirmationRecord,
@@ -44,10 +47,18 @@ from app.db.repositories.chat import ChatRepository
 from app.db.repositories.script_versions import ScriptVersionRepository
 from app.schemas.chapter_split import ChapterSplitRule
 from app.schemas.chat import ProjectTitleSuggestion
-from app.services.book_index_service import BookIndexService
+from app.services.book_index_service import (
+    BookIndexNotFoundError,
+    BookIndexService,
+    BookIndexServiceProjectNotFoundError,
+)
 from app.services.chapter_split_inference_service import ChapterSplitInferenceService
-from app.services.project_service import ProjectService
-from app.services.script_service import ScriptService
+from app.services.project_service import ProjectNotFoundError, ProjectService
+from app.services.script_service import (
+    ScriptService,
+    ScriptServiceProjectNotFoundError,
+    ScriptVersionNotFoundError,
+)
 from app.storage.project_store import ProjectStore
 
 
@@ -61,6 +72,18 @@ class ChatConfirmationNotFoundError(Exception):
 
 class ChatConfirmationStateError(Exception):
     """Raised when a confirmation cannot be applied."""
+
+
+class ChatSessionProjectRequiredError(Exception):
+    """Raised when a chat-scoped asset request has no linked project yet."""
+
+
+class ChatAssetNotFoundError(Exception):
+    """Raised when a chat-scoped project artifact is not available yet."""
+
+
+class ChatScriptVersionNotFoundError(Exception):
+    """Raised when a chat-scoped screenplay version cannot be found."""
 
 
 class ChatAgentService:
@@ -110,6 +133,55 @@ class ChatAgentService:
             ],
             latest_versions=latest_versions[-5:],
         )
+
+    async def list_session_chapters(self, session_id: str) -> ChapterListResponse:
+        project_id = await self._require_session_project_id(session_id)
+        try:
+            chapters = await ProjectService(self.session, self.settings).list_chapters(project_id)
+        except ProjectNotFoundError as exc:
+            raise ChatSessionProjectRequiredError(session_id) from exc
+        return ChapterListResponse(chapters=chapters)
+
+    async def get_session_book_index(self, session_id: str) -> BookIndexResponse:
+        project_id = await self._require_session_project_id(session_id)
+        try:
+            return await BookIndexService(
+                self.session,
+                self.settings,
+                self.agent,
+            ).get_index(project_id)
+        except BookIndexServiceProjectNotFoundError as exc:
+            raise ChatSessionProjectRequiredError(session_id) from exc
+        except BookIndexNotFoundError as exc:
+            raise ChatAssetNotFoundError(session_id) from exc
+
+    async def list_session_script_versions(self, session_id: str) -> ScriptVersionListResponse:
+        project_id = await self._require_session_project_id(session_id)
+        try:
+            return await ScriptService(
+                self.session,
+                self.settings,
+                self.agent,
+            ).list_versions(project_id)
+        except ScriptServiceProjectNotFoundError as exc:
+            raise ChatSessionProjectRequiredError(session_id) from exc
+
+    async def get_session_script_version(
+        self,
+        session_id: str,
+        version_id: str,
+    ) -> ScriptVersionDetailResponse:
+        project_id = await self._require_session_project_id(session_id)
+        try:
+            return await ScriptService(
+                self.session,
+                self.settings,
+                self.agent,
+            ).get_version(project_id, version_id)
+        except ScriptServiceProjectNotFoundError as exc:
+            raise ChatSessionProjectRequiredError(session_id) from exc
+        except ScriptVersionNotFoundError as exc:
+            raise ChatScriptVersionNotFoundError(version_id) from exc
 
     async def stream_user_message(
         self,
@@ -622,6 +694,12 @@ class ChatAgentService:
         if session is None:
             raise ChatSessionNotFoundError(session_id)
         return session
+
+    async def _require_session_project_id(self, session_id: str) -> str:
+        session = await self._require_session(session_id)
+        if session.project_id is None:
+            raise ChatSessionProjectRequiredError(session_id)
+        return session.project_id
 
     async def _session_response(self, record: ChatSessionRecord) -> ChatSessionResponse:
         pending = await self.chat.list_pending_confirmations(record.id)

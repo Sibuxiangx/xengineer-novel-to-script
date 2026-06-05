@@ -59,6 +59,18 @@ uv run fastapi dev app/main.py
 - API 文档：`http://127.0.0.1:8000/docs`
 - 健康检查：`http://127.0.0.1:8000/health`
 
+当前后端已支持的基础流程：
+
+1. `POST /projects` 创建改编项目。
+2. `POST /projects/{project_id}/ebook/import-txt` 导入 TXT 正文并自动分章。
+3. `GET /projects/{project_id}/chapters` 查看导入后的章节。
+4. `PATCH /projects/{project_id}/chapters/{chapter_id}` 手动编辑章节标题或正文。
+
+分章规则：
+
+- 能识别类似 `第一章 标题`、`第1章 标题`、`Chapter 1` 的章节标题。
+- 如果短篇文本没有分章标题，会保存为单章 `全文`，用户后续仍可手动编辑。
+
 运行测试：
 
 ```bash

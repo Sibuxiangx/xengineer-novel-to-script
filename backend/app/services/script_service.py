@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -32,6 +33,8 @@ from app.services.context_prompt_builder import ContextPromptBuilder, PackedProm
 from app.services.validation_service import ValidationService
 from app.services.yaml_patch_service import YamlPatchApplier
 from app.storage.project_store import ProjectStore
+
+StreamDeltaCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class ScriptServiceProjectNotFoundError(Exception):
@@ -91,6 +94,7 @@ class ScriptService:
         self,
         project_id: str,
         force_regenerate: bool,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> ScriptGenerateResponse:
         project = await self.projects.get(project_id)
         if project is None:
@@ -130,7 +134,10 @@ class ScriptService:
                 for chapter in chapters
             ],
         )
-        screenplay = await self.agent.generate_script(packed_prompt.prompt)
+        screenplay = await self.agent.generate_script(
+            packed_prompt.prompt,
+            stream_callback=self._phase_callback(stream_callback, "generate"),
+        )
         script_yaml = self._dump_screenplay(screenplay)
         report = await self.validate_script(project_id, script_yaml)
         script_yaml, report, repair_attempt_count = await self._repair_until_accepted(
@@ -138,6 +145,7 @@ class ScriptService:
             script_yaml=script_yaml,
             report=report,
             book_index=book_index,
+            stream_callback=stream_callback,
         )
         accepted_version_id = None
         rejected_version_id = None
@@ -187,6 +195,7 @@ class ScriptService:
         project_id: str,
         instruction: str,
         target_path: str | None,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> ScriptEditResponse:
         project = await self.projects.get(project_id)
         if project is None:
@@ -199,7 +208,10 @@ class ScriptService:
             current_yaml=current_yaml,
             book_index=book_index,
         )
-        plan = await self.agent.plan_yaml_edit(packed_prompt.prompt)
+        plan = await self.agent.plan_yaml_edit(
+            packed_prompt.prompt,
+            stream_callback=self._phase_callback(stream_callback, "plan_edit"),
+        )
         patched_yaml = self._apply_operations(current_yaml, plan.operations)
         report = await self.validate_script(project_id, patched_yaml)
         patched_yaml, report, repair_attempt_count = await self._repair_until_accepted(
@@ -207,6 +219,7 @@ class ScriptService:
             script_yaml=patched_yaml,
             report=report,
             book_index=book_index,
+            stream_callback=stream_callback,
         )
         accepted_version_id = None
         rejected_version_id = None
@@ -257,6 +270,7 @@ class ScriptService:
         project_id: str,
         script_yaml: str,
         validation_report_json: dict,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> ScriptGenerateResponse:
         project = await self.projects.get(project_id)
         if project is None:
@@ -272,6 +286,7 @@ class ScriptService:
             script_yaml=script_yaml,
             validation_report_json=validation_report_json,
             book_index=book_index,
+            stream_callback=stream_callback,
         )
         accepted_version_id = None
         rejected_version_id = None
@@ -458,6 +473,7 @@ class ScriptService:
         script_yaml: str,
         report: ScriptValidateResponse,
         book_index: BookIndex | None,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> tuple[str, ScriptValidateResponse, int]:
         repair_attempt_count = 0
         current_yaml = script_yaml
@@ -472,7 +488,11 @@ class ScriptService:
                     current_yaml,
                     current_report.validation_report.model_dump(mode="json"),
                     book_index,
-                ).prompt
+                ).prompt,
+                stream_callback=self._phase_callback(
+                    stream_callback,
+                    f"repair_attempt_{repair_attempt_count}",
+                ),
             )
             current_yaml = self._dump_screenplay(screenplay)
             current_report = await self.validate_script(project_id, current_yaml)
@@ -484,6 +504,7 @@ class ScriptService:
         script_yaml: str,
         validation_report_json: dict[str, Any],
         book_index: BookIndex | None,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> tuple[str, ScriptValidateResponse, int, ContextPackingReport | None]:
         repair_attempt_count = 0
         current_yaml = script_yaml
@@ -494,7 +515,13 @@ class ScriptService:
             repair_attempt_count += 1
             packed_prompt = self._repair_prompt(current_yaml, current_report_json, book_index)
             context_report = packed_prompt.report
-            screenplay = await self.agent.repair_script(packed_prompt.prompt)
+            screenplay = await self.agent.repair_script(
+                packed_prompt.prompt,
+                stream_callback=self._phase_callback(
+                    stream_callback,
+                    f"repair_attempt_{repair_attempt_count}",
+                ),
+            )
             current_yaml = self._dump_screenplay(screenplay)
             current_report = await self.validate_script(project_id, current_yaml)
             if current_report.validation_report.accepted:
@@ -503,6 +530,19 @@ class ScriptService:
         if current_report is None:
             current_report = await self.validate_script(project_id, current_yaml)
         return current_yaml, current_report, repair_attempt_count, context_report
+
+    @staticmethod
+    def _phase_callback(
+        callback: StreamDeltaCallback | None,
+        phase: str,
+    ) -> StreamDeltaCallback | None:
+        if callback is None:
+            return None
+
+        async def wrapped(delta: dict[str, Any]) -> None:
+            await callback({"phase": phase, **delta})
+
+        return wrapped
 
     def _dump_screenplay(self, screenplay: ScreenplayYaml) -> str:
         return yaml.safe_dump(

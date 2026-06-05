@@ -21,10 +21,12 @@ from app.api.models.chat import (
     ChatConfirmationActionRequest,
     ChatConfirmationResponse,
     ChatMessageResponse,
+    ChatRunResponse,
     ChatRunStreamRequest,
     ChatSessionCreateRequest,
     ChatSessionDetailResponse,
     ChatSessionResponse,
+    ChatTimelineItemResponse,
     ChatToolCallResponse,
 )
 from app.api.models.projects import (
@@ -89,6 +91,8 @@ class ChatScriptVersionNotFoundError(Exception):
 class ChatAgentService:
     """Agentic chat orchestration for the novel-to-screenplay product."""
 
+    _TIMELINE_HIDDEN_TOOL_NAMES = frozenset({"request_chapter_split_confirmation"})
+
     def __init__(self, session: AsyncSession, settings: Settings, agent: ScreenplayAgent) -> None:
         self.session = session
         self.settings = settings
@@ -107,14 +111,29 @@ class ChatAgentService:
         await self.session.commit()
         return await self._session_response(record)
 
-    async def list_sessions(self) -> list[ChatSessionResponse]:
-        sessions = await self.chat.list_sessions()
+    async def list_sessions(self, *, include_archived: bool = False) -> list[ChatSessionResponse]:
+        sessions = await self.chat.list_sessions(include_archived=include_archived)
         return [await self._session_response(session) for session in sessions]
+
+    async def archive_session(self, session_id: str) -> ChatSessionResponse:
+        session = await self._require_session(session_id)
+        await self.chat.archive_session(session)
+        await self.session.commit()
+        return await self._session_response(session)
+
+    async def restore_session(self, session_id: str) -> ChatSessionResponse:
+        session = await self._require_session(session_id)
+        await self.chat.restore_session(session)
+        await self.session.commit()
+        return await self._session_response(session)
 
     async def get_session_detail(self, session_id: str) -> ChatSessionDetailResponse:
         session = await self._require_session(session_id)
         messages = await self.chat.list_messages(session_id)
-        confirmations = await self.chat.list_pending_confirmations(session_id)
+        pending_confirmations = await self.chat.list_pending_confirmations(session_id)
+        confirmations = await self.chat.list_confirmations(session_id)
+        runs = await self.chat.list_runs(session_id)
+        tool_calls = await self.chat.list_tool_calls(session_id)
         latest_versions = []
         if session.project_id is not None:
             latest_versions = [
@@ -129,8 +148,16 @@ class ChatAgentService:
             session=await self._session_response(session),
             messages=[self._message_response(message) for message in messages],
             pending_confirmations=[
-                self._confirmation_response(confirmation) for confirmation in confirmations
+                self._confirmation_response(confirmation) for confirmation in pending_confirmations
             ],
+            runs=[self._run_response(run) for run in runs],
+            tool_calls=[self._tool_response(call) for call in tool_calls],
+            timeline=self._build_timeline(
+                messages=messages,
+                runs=runs,
+                tool_calls=tool_calls,
+                confirmations=confirmations,
+            ),
             latest_versions=latest_versions[-5:],
         )
 
@@ -189,10 +216,19 @@ class ChatAgentService:
         request: ChatRunStreamRequest,
     ) -> AsyncIterator[str]:
         session = await self._require_session(session_id)
-        run, user_message = await self.recorder.start_run(session, request.message)
+        run, user_message = await self.recorder.start_run(
+            session,
+            request.message,
+            user_metadata=self._source_attachment_metadata(request),
+        )
         yield self._event(
             "run.started",
-            {"run_id": run.id, "session_id": session.id, "user_message_id": user_message.id},
+            {
+                "run_id": run.id,
+                "session_id": session.id,
+                "user_message_id": user_message.id,
+                "user_message": self._message_response(user_message).model_dump(mode="json"),
+            },
         )
 
         try:
@@ -231,18 +267,26 @@ class ChatAgentService:
         )
         yield self._event(
             "run.started",
-            {"run_id": run.id, "session_id": session.id, "user_message_id": user_message.id},
+            {
+                "run_id": run.id,
+                "session_id": session.id,
+                "user_message_id": user_message.id,
+                "user_message": self._message_response(user_message).model_dump(mode="json"),
+                "confirmation_id": confirmation.id,
+                "confirmation_action": request.action,
+            },
         )
 
         try:
             if request.action == "cancel":
                 confirmation.status = ChatConfirmationStatus.cancelled.value
                 confirmation.resolved_at = datetime.now(UTC)
-                await self.recorder.complete_run(
+                assistant = await self.recorder.complete_run(
                     run=run,
                     chat_session=session,
                     content="已取消这次分章确认。你可以重新上传文本，或继续说明希望怎样调整。",
                 )
+                yield self._message_created_event(assistant, run.id)
                 yield self._event(
                     "tool.confirm.cancelled",
                     {"confirmation_id": confirmation.id, "kind": confirmation.kind},
@@ -267,7 +311,6 @@ class ChatAgentService:
         run: ChatRunRecord,
         request: ChatRunStreamRequest,
     ) -> AsyncIterator[str]:
-        yield self._event("message.delta", {"content": "已收到小说文本，开始识别项目与分章方式。"})
         toolbox = self._create_toolbox(
             session=session,
             run=run,
@@ -289,17 +332,18 @@ class ChatAgentService:
                 ),
                 run_id=run.id,
                 stage="source_ingestion_agent",
+                toolbox=toolbox,
             ):
                 if isinstance(observed, ObservedResult):
                     continue
                 yield observed
         except Exception:
-            for event in toolbox.events:
+            async for event in self._drain_toolbox_events(toolbox):
                 yield event
             raise
         if toolbox.pending_confirmation_id is None:
             raise RuntimeError("Agent did not create the required chapter split confirmation.")
-        for event in toolbox.events:
+        async for event in self._drain_toolbox_events(toolbox):
             yield event
 
     async def _stream_chat_instruction(
@@ -312,19 +356,27 @@ class ChatAgentService:
         if pending:
             confirmation = pending[-1]
             content = "当前正在等待你确认分章。你可以确认、取消，或在确认前手动调整分章规则。"
-            await self.recorder.complete_run(run=run, chat_session=session, content=content)
+            assistant = await self.recorder.complete_run(
+                run=run,
+                chat_session=session,
+                content=content,
+            )
             yield self._event(
                 "tool.confirm.required",
                 self._confirmation_response(confirmation).model_dump(mode="json"),
             )
-            yield self._event("message.delta", {"content": content})
+            yield self._message_created_event(assistant, run.id)
             yield self._event("run.completed", {"run_id": run.id})
             return
 
         if session.project_id is None:
             content = "请先上传或粘贴小说 TXT，我会从文本开始建立改编项目。"
-            await self.recorder.complete_run(run=run, chat_session=session, content=content)
-            yield self._event("message.delta", {"content": content})
+            assistant = await self.recorder.complete_run(
+                run=run,
+                chat_session=session,
+                content=content,
+            )
+            yield self._message_created_event(assistant, run.id)
             yield self._event("run.completed", {"run_id": run.id})
             return
 
@@ -344,28 +396,29 @@ class ChatAgentService:
                 ),
                 run_id=run.id,
                 stage="chat_instruction_agent",
+                toolbox=toolbox,
             ):
                 if isinstance(observed, ObservedResult):
                     response = cast(str, observed.value)
                     continue
                 yield observed
         except Exception:
-            for event in toolbox.events:
+            async for event in self._drain_toolbox_events(toolbox):
                 yield event
             raise
-        for event in toolbox.events:
+        async for event in self._drain_toolbox_events(toolbox):
             yield event
         if toolbox.completed_with_errors:
             content = toolbox.last_validation_error_message or (
                 "操作已执行，但剧本 YAML 未通过 harness，当前结果已保存为 rejected draft。"
             )
-            await self.recorder.complete_run_with_errors(
+            assistant = await self.recorder.complete_run_with_errors(
                 run=run,
                 chat_session=session,
                 content=content,
                 error_message=content,
             )
-            yield self._event("message.delta", {"content": content})
+            yield self._message_created_event(assistant, run.id)
             yield self._event(
                 "run.completed_with_errors",
                 {
@@ -376,11 +429,12 @@ class ChatAgentService:
                 },
             )
             return
-        await self.recorder.complete_run(
+        assistant = await self.recorder.complete_run(
             run=run,
             chat_session=session,
             content=response or "已根据你的说明处理当前项目。",
         )
+        yield self._message_created_event(assistant, run.id)
         yield self._event("run.completed", {"run_id": run.id})
 
     async def _stream_chapter_split_confirmation(
@@ -402,62 +456,63 @@ class ChatAgentService:
                 toolbox.import_chapters(confirmation=confirmation, rule=rule),
                 run_id=run.id,
                 stage="import_chapters",
+                toolbox=toolbox,
             ):
                 if isinstance(observed, ObservedResult):
                     continue
                 yield observed
         except Exception:
-            for event in toolbox.events:
+            async for event in self._drain_toolbox_events(toolbox):
                 yield event
             raise
-        for event in toolbox.events:
+        async for event in self._drain_toolbox_events(toolbox):
             yield event
-        event_offset = len(toolbox.events)
 
         try:
             async for observed in self._observe_awaitable(
                 toolbox.build_book_index(project_id, force_rebuild=True),
                 run_id=run.id,
                 stage="build_book_index",
+                toolbox=toolbox,
             ):
                 if isinstance(observed, ObservedResult):
                     continue
                 yield observed
         except Exception:
-            for event in toolbox.events[event_offset:]:
+            async for event in self._drain_toolbox_events(toolbox):
                 yield event
             raise
-        for event in toolbox.events[event_offset:]:
+        async for event in self._drain_toolbox_events(toolbox):
             yield event
-        event_offset = len(toolbox.events)
 
         try:
             async for observed in self._observe_awaitable(
                 toolbox.generate_script_yaml(project_id, force_regenerate=True),
                 run_id=run.id,
                 stage="generate_script_yaml",
+                toolbox=toolbox,
             ):
                 if isinstance(observed, ObservedResult):
                     continue
                 yield observed
         except Exception:
-            for event in toolbox.events[event_offset:]:
+            async for event in self._drain_toolbox_events(toolbox):
                 yield event
             raise
-        for event in toolbox.events[event_offset:]:
+        async for event in self._drain_toolbox_events(toolbox):
             yield event
         if toolbox.completed_with_errors:
             content = toolbox.last_validation_error_message or (
                 "分章已确认，剧情索引已生成，但剧本 YAML 未通过 harness，"
                 "当前结果已保存为 rejected draft。"
             )
-            await self.recorder.complete_run_with_errors(
+            assistant = await self.recorder.complete_run_with_errors(
                 run=run,
                 chat_session=session,
                 content=content,
                 error_message=content,
             )
-            yield self._event("message.delta", {"content": content})
+            yield self._message_created_event(assistant, run.id)
             yield self._event(
                 "run.completed_with_errors",
                 {
@@ -468,7 +523,7 @@ class ChatAgentService:
                 },
             )
             return
-        await self.recorder.complete_run(
+        assistant = await self.recorder.complete_run(
             run=run,
             chat_session=session,
             content=(
@@ -476,6 +531,7 @@ class ChatAgentService:
                 "你现在可以直接用自然语言继续要求我修改剧本。"
             ),
         )
+        yield self._message_created_event(assistant, run.id)
         yield self._event("run.completed", {"run_id": run.id})
 
     async def _require_session(self, session_id: str) -> ChatSessionRecord:
@@ -512,6 +568,27 @@ class ChatAgentService:
             created_at=record.created_at,
         )
 
+    def _run_response(self, record: ChatRunRecord) -> ChatRunResponse:
+        return ChatRunResponse(
+            id=record.id,
+            session_id=record.session_id,
+            status=cast(
+                Literal[
+                    "running",
+                    "waiting_confirmation",
+                    "completed",
+                    "completed_with_errors",
+                    "failed",
+                ],
+                record.status,
+            ),
+            user_message_id=record.user_message_id,
+            assistant_message_id=record.assistant_message_id,
+            error_message=record.error_message,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
     def _tool_response(self, record: ChatToolCallRecord) -> ChatToolCallResponse:
         duration_ms = int((record.updated_at - record.created_at).total_seconds() * 1000)
         return ChatToolCallResponse(
@@ -543,6 +620,121 @@ class ChatAgentService:
             created_at=record.created_at,
             resolved_at=record.resolved_at,
         )
+
+    def _build_timeline(
+        self,
+        *,
+        messages: list[ChatMessageRecord],
+        runs: list[ChatRunRecord],
+        tool_calls: list[ChatToolCallRecord],
+        confirmations: list[ChatConfirmationRecord],
+    ) -> list[ChatTimelineItemResponse]:
+        messages_by_id = {message.id: message for message in messages}
+        confirmations_by_id = {confirmation.id: confirmation for confirmation in confirmations}
+        tools_by_run_id: dict[str, list[ChatToolCallRecord]] = {}
+        for tool in tool_calls:
+            tools_by_run_id.setdefault(tool.run_id, []).append(tool)
+
+        items: list[ChatTimelineItemResponse] = []
+        consumed_message_ids: set[str] = set()
+        consumed_tool_ids: set[str] = set()
+        consumed_confirmation_ids: set[str] = set()
+
+        def append_message(message: ChatMessageRecord, run_id: str | None) -> None:
+            if message.id in consumed_message_ids:
+                return
+            consumed_message_ids.add(message.id)
+            items.append(
+                ChatTimelineItemResponse(
+                    id=f"message:{message.id}",
+                    kind="message",
+                    session_id=message.session_id,
+                    run_id=run_id,
+                    message=self._message_response(message),
+                    created_at=message.created_at,
+                )
+            )
+
+        def append_tool(tool: ChatToolCallRecord) -> None:
+            if tool.id in consumed_tool_ids:
+                return
+            if tool.name in self._TIMELINE_HIDDEN_TOOL_NAMES:
+                consumed_tool_ids.add(tool.id)
+                return
+            consumed_tool_ids.add(tool.id)
+            items.append(
+                ChatTimelineItemResponse(
+                    id=f"tool:{tool.id}",
+                    kind="tool_call",
+                    session_id=tool.session_id,
+                    run_id=tool.run_id,
+                    tool_call=self._tool_response(tool),
+                    created_at=tool.created_at,
+                )
+            )
+
+        def append_confirmation(
+            confirmation: ChatConfirmationRecord,
+            run_id: str | None,
+        ) -> None:
+            if confirmation.id in consumed_confirmation_ids:
+                return
+            if confirmation.status != ChatConfirmationStatus.pending.value:
+                consumed_confirmation_ids.add(confirmation.id)
+                return
+            consumed_confirmation_ids.add(confirmation.id)
+            items.append(
+                ChatTimelineItemResponse(
+                    id=f"confirmation:{confirmation.id}",
+                    kind="confirmation",
+                    session_id=confirmation.session_id,
+                    run_id=run_id,
+                    confirmation=self._confirmation_response(confirmation),
+                    created_at=confirmation.created_at,
+                )
+            )
+
+        for run in runs:
+            if run.user_message_id is not None:
+                user_message = messages_by_id.get(run.user_message_id)
+                if user_message is not None:
+                    append_message(user_message, run.id)
+
+            for tool in tools_by_run_id.get(run.id, []):
+                append_tool(tool)
+
+            assistant_message: ChatMessageRecord | None = None
+            if run.assistant_message_id is not None:
+                assistant_message = messages_by_id.get(run.assistant_message_id)
+                if assistant_message is not None:
+                    append_message(assistant_message, run.id)
+
+            confirmation_id = self._confirmation_id_from_message(assistant_message)
+            if confirmation_id is not None:
+                confirmation = confirmations_by_id.get(confirmation_id)
+                if confirmation is not None:
+                    append_confirmation(confirmation, run.id)
+
+        for message in messages:
+            if message.id not in consumed_message_ids:
+                append_message(message, None)
+
+        for tool in tool_calls:
+            if tool.id not in consumed_tool_ids:
+                append_tool(tool)
+
+        for confirmation in confirmations:
+            if confirmation.id not in consumed_confirmation_ids:
+                append_confirmation(confirmation, None)
+
+        return items
+
+    @staticmethod
+    def _confirmation_id_from_message(message: ChatMessageRecord | None) -> str | None:
+        if message is None or message.metadata_json is None:
+            return None
+        value = message.metadata_json.get("confirmation_id")
+        return value if isinstance(value, str) else None
 
     def _create_toolbox(
         self,
@@ -587,12 +779,25 @@ class ChatAgentService:
             ]
         )
 
+    @staticmethod
+    def _source_attachment_metadata(request: ChatRunStreamRequest) -> dict[str, Any] | None:
+        if not request.source_text:
+            return None
+        return {
+            "source_attachment": {
+                "file_name": request.source_file_name or "novel.txt",
+                "text_length": len(request.source_text),
+                "media_type": "text/plain",
+            }
+        }
+
     async def _observe_awaitable(
         self,
         awaitable: Awaitable[Any],
         *,
         run_id: str,
         stage: str,
+        toolbox: ChatToolbox | None = None,
     ) -> AsyncIterator[str | ObservedResult]:
         started_at = datetime.now(UTC)
         yield self._event(
@@ -606,13 +811,30 @@ class ChatAgentService:
         )
         task = asyncio.ensure_future(awaitable)
         started = monotonic()
+        last_heartbeat = started
+        poll_interval = (
+            min(0.25, self.settings.sse_heartbeat_interval_seconds)
+            if toolbox is not None
+            else self.settings.sse_heartbeat_interval_seconds
+        )
         try:
             while not task.done():
+                if toolbox is not None:
+                    async for event in self._drain_toolbox_events(toolbox):
+                        yield event
                 done, _ = await asyncio.wait(
                     {task},
-                    timeout=self.settings.sse_heartbeat_interval_seconds,
+                    timeout=poll_interval,
                 )
-                if not done:
+                if toolbox is not None:
+                    async for event in self._drain_toolbox_events(toolbox):
+                        yield event
+                now = monotonic()
+                if (
+                    not done
+                    and now - last_heartbeat >= self.settings.sse_heartbeat_interval_seconds
+                ):
+                    last_heartbeat = now
                     yield self._event(
                         "heartbeat",
                         {
@@ -622,7 +844,13 @@ class ChatAgentService:
                         },
                     )
             value = task.result()
+            if toolbox is not None:
+                async for event in self._drain_toolbox_events(toolbox):
+                    yield event
         except Exception as exc:
+            if toolbox is not None:
+                async for event in self._drain_toolbox_events(toolbox):
+                    yield event
             duration_ms = int((monotonic() - started) * 1000)
             yield self._event(
                 "run.progress",
@@ -647,5 +875,14 @@ class ChatAgentService:
         )
         yield ObservedResult(value)
 
+    async def _drain_toolbox_events(self, toolbox: ChatToolbox) -> AsyncIterator[str]:
+        while not toolbox.live_events.empty():
+            yield toolbox.live_events.get_nowait()
+
     def _event(self, name: str, data: dict[str, Any]) -> str:
         return format_sse_event(name, data)
+
+    def _message_created_event(self, message: ChatMessageRecord, run_id: str | None) -> str:
+        payload = self._message_response(message).model_dump(mode="json")
+        payload["run_id"] = run_id
+        return self._event("message.created", payload)

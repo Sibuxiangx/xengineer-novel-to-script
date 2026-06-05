@@ -67,12 +67,20 @@ class FakeChatAgent:
         assert deps.toolbox is not None
         return "已处理当前项目。"
 
-    async def infer_project_title(self, prompt: str) -> ProjectTitleSuggestion:
+    async def infer_project_title(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ProjectTitleSuggestion:
         assert "推导项目名" in prompt
         assert "long_chaptered.txt" in prompt
         return ProjectTitleSuggestion(title="雾港来信改编", reason="正文围绕雾港与旧信展开。")
 
-    async def infer_chapter_split_rule(self, prompt: str) -> ChapterSplitRule:
+    async def infer_chapter_split_rule(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ChapterSplitRule:
         assert "推导全文分章规则" in prompt
         return ChapterSplitRule(
             strategy="line_regex",
@@ -83,7 +91,11 @@ class FakeChatAgent:
             examples=["第一章 雾港来信", "第二章 雨夜剧场"],
         )
 
-    async def review_chapter_split_result(self, prompt: str) -> ChapterSplitReview:
+    async def review_chapter_split_result(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ChapterSplitReview:
         assert "本地切分预览" in prompt
         return ChapterSplitReview(
             accepted=True,
@@ -92,7 +104,11 @@ class FakeChatAgent:
             context_requests=[],
         )
 
-    async def build_book_index(self, prompt: str) -> BookIndex:
+    async def build_book_index(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> BookIndex:
         chapter_id = extract_chapter_id(prompt)
         return BookIndex(
             schema_version="1.0",
@@ -125,7 +141,11 @@ class FakeChatAgent:
             ],
         )
 
-    async def generate_script(self, prompt: str) -> ScreenplayYaml:
+    async def generate_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
         chapter_id = extract_chapter_id(prompt)
         return ScreenplayYaml(
             schema_version="1.0",
@@ -189,7 +209,11 @@ class FakeChatAgent:
             ],
         )
 
-    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+    async def repair_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
         assert "harness errors" in prompt
         match = re.search(r"chapter_id: ([^\n]+)", prompt)
         chapter_id = match.group(1).strip() if match else "chapter_001"
@@ -200,12 +224,20 @@ class RejectedScriptFakeChatAgent(FakeChatAgent):
     def __init__(self) -> None:
         self.repair_count = 0
 
-    async def generate_script(self, prompt: str) -> ScreenplayYaml:
+    async def generate_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
         screenplay = await super().generate_script(prompt)
         screenplay.scenes[0].adaptation_notes = None
         return screenplay
 
-    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+    async def repair_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
         self.repair_count += 1
         assert "harness errors" in prompt
         match = re.search(r"chapter_id: ([^\n]+)", prompt)

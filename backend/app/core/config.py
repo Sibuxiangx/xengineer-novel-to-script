@@ -23,6 +23,13 @@ class Settings(BaseSettings):
         "deepseek-v4-pro",
         description="Primary model name used by the screenplay agent.",
     )
+    deepseek_fast_model: str = Field(
+        "deepseek-v4-flash",
+        description=(
+            "Low-latency DeepSeek model used for high-volume structured generation "
+            "tasks such as book index and initial screenplay YAML generation."
+        ),
+    )
     model_context_limit: int = Field(
         1_000_000,
         ge=1,

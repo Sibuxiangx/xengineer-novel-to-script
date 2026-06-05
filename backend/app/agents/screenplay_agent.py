@@ -1,3 +1,5 @@
+import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
@@ -17,6 +19,13 @@ from app.schemas.yaml_patch import YamlPatchPlan
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
 OutputT = TypeVar("OutputT")
+StreamDeltaCallback = Callable[[dict[str, Any]], Awaitable[None]]
+FAST_STRUCTURED_TASK_PROMPTS = frozenset(
+    {
+        "build_book_index.zh.md",
+        "generate_script_yaml.zh.md",
+    }
+)
 
 
 class AgentConfigurationError(Exception):
@@ -35,11 +44,16 @@ class ScreenplayAgent:
         self._deps = AgentDeps(settings=settings)
         self._prompt_cache: dict[str, str] = {}
         self._model: Model | None = None
+        self._fast_model: Model | None = None
         self._agent: Agent[AgentDeps, Any] | None = None
+        self._fast_agent: Agent[AgentDeps, Any] | None = None
         self._tool_agent: Agent[AgentDeps, str] | None = None
         self._model_settings: OpenAIChatModelSettings = {
             "extra_body": {"thinking": {"type": "enabled"}},
             "openai_reasoning_effort": "high",
+        }
+        self._fast_model_settings: OpenAIChatModelSettings = {
+            "extra_body": {"thinking": {"type": "disabled"}},
         }
 
     def load_prompt(self, prompt_name: str) -> str:
@@ -51,60 +65,100 @@ class ScreenplayAgent:
         self._prompt_cache[prompt_name] = prompt
         return prompt
 
-    async def build_book_index(self, prompt: str) -> BookIndex:
+    async def build_book_index(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> BookIndex:
         return await self._run_structured(
             prompt=prompt,
             output_type=BookIndex,
             task_prompt_name="build_book_index.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def infer_project_title(self, prompt: str) -> ProjectTitleSuggestion:
+    async def infer_project_title(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ProjectTitleSuggestion:
         return await self._run_structured(
             prompt=prompt,
             output_type=ProjectTitleSuggestion,
             task_prompt_name="infer_project_title.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def infer_chapter_split_rule(self, prompt: str) -> ChapterSplitRule:
+    async def infer_chapter_split_rule(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ChapterSplitRule:
         return await self._run_structured(
             prompt=prompt,
             output_type=ChapterSplitRule,
             task_prompt_name="infer_chapter_split_rule.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def review_chapter_split_result(self, prompt: str) -> ChapterSplitReview:
+    async def review_chapter_split_result(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ChapterSplitReview:
         return await self._run_structured(
             prompt=prompt,
             output_type=ChapterSplitReview,
             task_prompt_name="review_chapter_split_result.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def revise_chapter_split_rule(self, prompt: str) -> ChapterSplitRule:
+    async def revise_chapter_split_rule(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ChapterSplitRule:
         return await self._run_structured(
             prompt=prompt,
             output_type=ChapterSplitRule,
             task_prompt_name="revise_chapter_split_rule.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def generate_script(self, prompt: str) -> ScreenplayYaml:
+    async def generate_script(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ScreenplayYaml:
         return await self._run_structured(
             prompt=prompt,
             output_type=ScreenplayYaml,
             task_prompt_name="generate_script_yaml.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def plan_yaml_edit(self, prompt: str) -> YamlPatchPlan:
+    async def plan_yaml_edit(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> YamlPatchPlan:
         return await self._run_structured(
             prompt=prompt,
             output_type=YamlPatchPlan,
             task_prompt_name="generate_yaml_patch.zh.md",
+            stream_callback=stream_callback,
         )
 
-    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+    async def repair_script(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> ScreenplayYaml:
         return await self._run_structured(
             prompt=prompt,
             output_type=ScreenplayYaml,
             task_prompt_name="repair_from_harness.zh.md",
+            stream_callback=stream_callback,
         )
 
     async def run_source_ingestion_tools(self, prompt: str, deps: AgentDeps) -> str:
@@ -117,6 +171,8 @@ class ScreenplayAgent:
                 instructions=self.load_prompt("chat_tool_orchestration.zh.md"),
             )
         except AgentConfigurationError:
+            raise
+        except AgentExecutionError:
             raise
         except Exception as exc:  # pragma: no cover - provider failure path
             raise AgentExecutionError(str(exc)) from exc
@@ -142,19 +198,74 @@ class ScreenplayAgent:
         prompt: str,
         output_type: type[OutputT],
         task_prompt_name: str,
+        stream_callback: StreamDeltaCallback | None = None,
     ) -> OutputT:
         try:
-            result = await self._get_agent().run(
+            agent = self._get_structured_agent(task_prompt_name)
+            if stream_callback is None:
+                result = await agent.run(
+                    prompt,
+                    output_type=output_type,
+                    instructions=self.load_prompt(task_prompt_name),
+                    deps=self._deps,
+                )
+                return cast(OutputT, result.output)
+
+            output: OutputT | None = None
+            async with agent.run_stream_events(
                 prompt,
                 output_type=output_type,
                 instructions=self.load_prompt(task_prompt_name),
                 deps=self._deps,
-            )
+            ) as stream:
+                async for event in stream:
+                    delta = self._stream_delta_payload(event)
+                    if delta is not None:
+                        await stream_callback(
+                            {
+                                "task": task_prompt_name.removesuffix(".zh.md"),
+                                **delta,
+                            }
+                        )
+                    if getattr(event, "event_kind", None) == "agent_run_result":
+                        result = cast(Any, event).result
+                        output = cast(OutputT, result.output)
+            if output is None:
+                raise AgentExecutionError("Model stream finished without a final result.")
+            return output
         except AgentConfigurationError:
+            raise
+        except AgentExecutionError:
             raise
         except Exception as exc:  # pragma: no cover - provider failure path
             raise AgentExecutionError(str(exc)) from exc
-        return cast(OutputT, result.output)
+
+    @staticmethod
+    def _stream_delta_payload(event: Any) -> dict[str, Any] | None:
+        if getattr(event, "event_kind", None) != "part_delta":
+            return None
+
+        delta = getattr(event, "delta", None)
+        delta_kind = getattr(delta, "part_delta_kind", "")
+        content = ""
+
+        if delta_kind == "text":
+            content = getattr(delta, "content_delta", "") or ""
+        elif delta_kind == "thinking":
+            content = getattr(delta, "content_delta", "") or ""
+        elif delta_kind == "tool_call":
+            args_delta = getattr(delta, "args_delta", None)
+            if isinstance(args_delta, str):
+                content = args_delta
+            elif args_delta is not None:
+                content = json.dumps(args_delta, ensure_ascii=False)
+
+        if not content:
+            return None
+        return {
+            "stream_kind": delta_kind,
+            "content": content,
+        }
 
     def _get_agent(self) -> Agent[AgentDeps, Any]:
         if self._agent is None:
@@ -166,6 +277,22 @@ class ScreenplayAgent:
                 retries=2,
             )
         return self._agent
+
+    def _get_fast_agent(self) -> Agent[AgentDeps, Any]:
+        if self._fast_agent is None:
+            self._fast_agent = Agent(
+                model=self._get_fast_model(),
+                deps_type=AgentDeps,
+                system_prompt=self.load_prompt("system.zh.md"),
+                model_settings=self._fast_model_settings,
+                retries=2,
+            )
+        return self._fast_agent
+
+    def _get_structured_agent(self, task_prompt_name: str) -> Agent[AgentDeps, Any]:
+        if task_prompt_name in FAST_STRUCTURED_TASK_PROMPTS:
+            return self._get_fast_agent()
+        return self._get_agent()
 
     def _get_tool_agent(self) -> Agent[AgentDeps, str]:
         if self._tool_agent is None:
@@ -265,6 +392,16 @@ class ScreenplayAgent:
             provider = DeepSeekProvider(api_key=api_key)
             self._model = OpenAIChatModel(self.settings.deepseek_model, provider=provider)
         return self._model
+
+    def _get_fast_model(self) -> Model:
+        if self._fast_model is None:
+            api_key = self._require_api_key(self.settings.deepseek_api_key)
+            provider = DeepSeekProvider(api_key=api_key)
+            self._fast_model = OpenAIChatModel(
+                self.settings.deepseek_fast_model,
+                provider=provider,
+            )
+        return self._fast_model
 
     def _require_api_key(self, value: SecretStr | None) -> str:
         if value is None or not value.get_secret_value().strip():

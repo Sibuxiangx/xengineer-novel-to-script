@@ -1,0 +1,19 @@
+.sw-version-card {
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.sw-version-card.is-selected.is-accepted {
+  border-color: var(--sw-color-primary);
+  box-shadow: 0 0 0 2px rgb(22 119 255 / 0.16);
+}
+
+.sw-version-card.is-selected.is-rejected {
+  border-color: var(--sw-color-warning);
+  box-shadow: 0 0 0 2px rgb(250 173 20 / 0.16);
+}
+
+.sw-version-card:focus-visible {
+  outline: 2px solid var(--sw-color-primary);
+  outline-offset: 2px;
+}

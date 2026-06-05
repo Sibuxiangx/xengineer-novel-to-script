@@ -1,0 +1,59 @@
+.sw-composer {
+  border-top: 1px solid var(--sw-color-border);
+  padding: 14px 24px 18px;
+  background: transparent;
+}
+
+.sw-composer .ant-sender {
+  max-width: 960px;
+  margin: 0 auto;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sw-composer .ant-sender-header {
+  background: transparent;
+  border-bottom-color: var(--sw-color-border);
+}
+
+.sw-composer .ant-sender-content {
+  background: transparent;
+}
+
+.sw-composer-header {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.sw-source-chip {
+  max-width: 960px;
+  margin: 0 auto 8px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: color-mix(in srgb, var(--sw-color-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sw-color-primary) 22%, var(--sw-color-border));
+  border-radius: 10px;
+}
+
+.sw-source-chip-tag {
+  margin: 0;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sw-source-chip-meta {
+  flex: 1 1 auto;
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .sw-composer {
+    padding: 12px 14px 16px;
+  }
+}

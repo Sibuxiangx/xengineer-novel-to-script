@@ -1,0 +1,43 @@
+.sw-yaml-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.sw-yaml-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.sw-yaml-editor {
+  flex: 1 1 auto;
+  min-height: 320px;
+  border: 1px solid var(--sw-color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--sw-color-surface);
+}
+
+.sw-monaco-error-line {
+  background-color: color-mix(in srgb, var(--sw-color-danger) 16%, transparent);
+}
+
+.sw-monaco-warning-line {
+  background-color: color-mix(in srgb, var(--sw-color-warning) 18%, transparent);
+}
+
+.sw-monaco-error-glyph::before {
+  content: "●";
+  color: var(--sw-color-danger);
+}
+
+.sw-monaco-warning-glyph::before {
+  content: "▲";
+  color: var(--sw-color-warning);
+}

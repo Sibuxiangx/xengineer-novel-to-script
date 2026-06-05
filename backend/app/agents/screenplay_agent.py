@@ -9,6 +9,7 @@ from pydantic_ai.providers.deepseek import DeepSeekProvider
 from app.core.config import Settings
 from app.schemas.book_index import BookIndex
 from app.schemas.chapter_split import ChapterSplitReview, ChapterSplitRule
+from app.schemas.chat import ProjectTitleSuggestion
 from app.schemas.screenplay import ScreenplayYaml
 from app.schemas.yaml_patch import YamlPatchPlan
 
@@ -39,6 +40,13 @@ class ScreenplayAgent:
             prompt=prompt,
             output_type=BookIndex,
             task_prompt_name="build_book_index.zh.md",
+        )
+
+    async def infer_project_title(self, prompt: str) -> ProjectTitleSuggestion:
+        return await self._run_structured(
+            prompt=prompt,
+            output_type=ProjectTitleSuggestion,
+            task_prompt_name="infer_project_title.zh.md",
         )
 
     async def infer_chapter_split_rule(self, prompt: str) -> ChapterSplitRule:

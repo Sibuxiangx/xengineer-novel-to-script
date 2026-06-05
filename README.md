@@ -39,7 +39,7 @@
 
 ## 当前状态
 
-仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、剧本 YAML 生成、harness 校验、局部编辑、修复、版本管理与导出闭环。
+仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、剧本 YAML 生成、harness 校验、局部编辑、修复、版本管理与导出闭环，并新增面向 Chat 产品形态的 Agent 会话、SSE 工具调用流与用户确认点。
 
 ## 运行方式
 
@@ -60,6 +60,26 @@ uv run fastapi dev app/main.py
 - 健康检查：`http://127.0.0.1:8000/health`
 
 当前后端已支持的基础流程：
+
+产品主入口是 Chat Agent：
+
+1. `POST /chat/sessions` 创建对话会话，用于左侧项目区。
+2. `GET /chat/sessions` 获取会话列表。
+3. `GET /chat/sessions/{session_id}` 获取消息、待确认项和最近剧本版本。
+4. `POST /chat/sessions/{session_id}/runs/stream` 通过 SSE 发送用户消息。上传或粘贴 TXT 后，后端会依次推导项目名、创建项目、推导分章规则，并返回 `tool.confirm.required` 等待用户确认。
+5. `POST /chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 通过 SSE 处理确认。确认分章后，后端会自动导入章节、生成 `book_index.json`、生成并校验 `script.yaml`，并通过 `asset.updated` 通知前端刷新右侧资产栏。
+
+SSE 事件类型：
+
+- `run.started`：一次 Agent 执行开始。
+- `message.delta`：助手可展示回复片段。
+- `tool.call.started` / `tool.call.completed`：工具调用开始与完成。
+- `tool.confirm.required`：需要用户确认的工具结果，例如分章预览。
+- `asset.updated`：章节、剧情索引、剧本 YAML 等资产更新。
+- `run.waiting_confirmation` / `run.completed`：执行暂停或完成。
+- `error`：可展示错误，不用静态兜底冒充成功。
+
+底层 API 仍可独立调用，方便测试、调试和前端资产面板读取：
 
 1. `POST /projects` 创建改编项目。
 2. `POST /projects/{project_id}/ebook/import-txt` 导入 TXT 正文并自动分章。

@@ -50,6 +50,21 @@ def extract_chapter_id(prompt: str) -> str:
 
 
 class FakeChatAgent:
+    async def run_source_ingestion_tools(self, prompt: str, deps: Any) -> str:
+        assert "工具编排要求" in prompt
+        assert deps.toolbox is not None
+        title = await deps.toolbox.propose_project_title()
+        project = await deps.toolbox.create_project(title.title)
+        deps.project_id = project.project_id
+        await deps.toolbox.propose_chapter_split()
+        await deps.toolbox.request_chapter_split_confirmation()
+        return "已创建分章确认。"
+
+    async def run_chat_instruction_tools(self, prompt: str, deps: Any) -> str:
+        assert "已有小说改编项目" in prompt
+        assert deps.toolbox is not None
+        return "已处理当前项目。"
+
     async def infer_project_title(self, prompt: str) -> ProjectTitleSuggestion:
         assert "推导项目名" in prompt
         assert "long_chaptered.txt" in prompt
@@ -265,9 +280,7 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             assert book_index_response.json()["book_index"]["title"] == "雾港来信改编"
 
             version_id = detail["latest_versions"][-1]["id"]
-            versions_response = client.get(
-                f"/chat/sessions/{session_id}/assets/scripts/versions"
-            )
+            versions_response = client.get(f"/chat/sessions/{session_id}/assets/scripts/versions")
             assert versions_response.status_code == 200
             assert versions_response.json()["versions"][-1]["id"] == version_id
 
@@ -291,9 +304,7 @@ def test_chat_routes_are_documented_in_openapi() -> None:
         "/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream"
     ]["post"]
     chapters_route = schema["paths"]["/chat/sessions/{session_id}/assets/chapters"]["get"]
-    versions_route = schema["paths"][
-        "/chat/sessions/{session_id}/assets/scripts/versions"
-    ]["get"]
+    versions_route = schema["paths"]["/chat/sessions/{session_id}/assets/scripts/versions"]["get"]
     assert create_route["summary"] == "Create a chat session"
     assert "ChatSessionCreateRequest" in str(create_route["requestBody"])
     assert stream_route["summary"] == "Stream an agent chat run"

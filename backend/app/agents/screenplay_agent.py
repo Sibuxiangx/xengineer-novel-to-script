@@ -8,6 +8,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.core.config import Settings
 from app.schemas.book_index import BookIndex
+from app.schemas.screenplay import ScreenplayYaml
+from app.schemas.yaml_patch import YamlPatchPlan
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
 OutputT = TypeVar("OutputT")
@@ -36,6 +38,27 @@ class ScreenplayAgent:
             prompt=prompt,
             output_type=BookIndex,
             task_prompt_name="build_book_index.zh.md",
+        )
+
+    async def generate_script(self, prompt: str) -> ScreenplayYaml:
+        return await self._run_structured(
+            prompt=prompt,
+            output_type=ScreenplayYaml,
+            task_prompt_name="generate_script_yaml.zh.md",
+        )
+
+    async def plan_yaml_edit(self, prompt: str) -> YamlPatchPlan:
+        return await self._run_structured(
+            prompt=prompt,
+            output_type=YamlPatchPlan,
+            task_prompt_name="generate_yaml_patch.zh.md",
+        )
+
+    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+        return await self._run_structured(
+            prompt=prompt,
+            output_type=ScreenplayYaml,
+            task_prompt_name="repair_from_harness.zh.md",
         )
 
     async def _run_structured(

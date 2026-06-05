@@ -39,7 +39,7 @@
 
 ## 当前状态
 
-仓库创建于第三批次题目开放后。当前仅完成项目初始化与选题确认，正式开发将在后续 PR 中持续推进。
+仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、剧本 YAML 生成、harness 校验、局部编辑、修复、版本管理与导出闭环。
 
 ## 运行方式
 
@@ -67,7 +67,15 @@ uv run fastapi dev app/main.py
 4. `PATCH /projects/{project_id}/chapters/{chapter_id}` 手动编辑章节标题或正文。
 5. `POST /projects/{project_id}/book-index` 调用 DeepSeek Agent 生成 `book_index.json`。
 6. `GET /projects/{project_id}/book-index` 读取已生成的剧情索引。
-7. `POST /projects/{project_id}/scripts/validate` 使用 harness 校验剧本 YAML。
+7. `POST /projects/{project_id}/scripts/generate` 基于章节与 `book_index.json` 生成 `script.yaml`。
+8. `POST /projects/{project_id}/scripts/validate` 使用 harness 校验剧本 YAML。
+9. `POST /projects/{project_id}/scripts/edit` 通过结构化 YAML patch 局部编辑当前剧本。
+10. `POST /projects/{project_id}/scripts/repair` 根据 harness 错误修复未通过校验的 YAML。
+11. `GET /projects/{project_id}/scripts/versions` 查看通过校验并保存的剧本版本。
+12. `GET /projects/{project_id}/scripts/versions/{version_id}` 查看某个版本的 YAML。
+13. `POST /projects/{project_id}/scripts/versions/{version_id}/restore` 回滚到某个已接受版本。
+14. `GET /projects/{project_id}/scripts/exports/script.yaml` 导出当前剧本 YAML。
+15. `GET /projects/{project_id}/scripts/exports/screenplay-schema.json` 导出剧本 JSON Schema。
 
 分章规则：
 
@@ -79,6 +87,12 @@ AI 能力说明：
 - 生产路径不会使用静态兜底内容冒充模型结果。
 - 如果缺少 `DEEPSEEK_API_KEY` 或模型服务异常，接口会返回明确错误。
 - 测试通过依赖注入 mock 模型边界，不影响生产路径真实调用。
+
+剧本版本规则：
+
+- 只有通过 harness 校验的 YAML 会写入 `script.yaml` 并生成版本快照。
+- 生成、编辑、修复都会返回校验报告，便于前端展示错误与可量化指标。
+- 局部编辑使用 `replace_script`、`patch_scene`、`replace_scene`、`insert_event`、`patch_event`、`delete_event` 等结构化操作，方便后续对话式迭代。
 
 运行测试：
 
@@ -93,7 +107,7 @@ uv run pytest
 
 - FastAPI：Web API 与自动化 OpenAPI 文档。
 - Pydantic / Pydantic Settings：请求、响应、配置与领域模型。
-- Pydantic AI：后续 Agent 编排核心。
+- Pydantic AI：DeepSeek Agent 编排与结构化输出。
 - SQLAlchemy async / aiosqlite：SQLite 异步数据访问。
 - python-dotenv：本地环境变量管理。
 - PyYAML：后续 YAML 解析、校验与导出。

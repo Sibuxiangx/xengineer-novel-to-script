@@ -28,6 +28,12 @@ class Settings(BaseSettings):
         ge=1,
         description="Configured context window used by token budgeting services.",
     )
+    script_repair_max_attempts: int = Field(
+        3,
+        ge=0,
+        le=5,
+        description="Maximum automatic YAML repair attempts after harness rejection.",
+    )
     backend_cors_origins: str = Field(
         "http://localhost:5173",
         description="Comma-separated list of allowed frontend origins.",
@@ -54,11 +60,7 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        return [
-            origin.strip()
-            for origin in self.backend_cors_origins.split(",")
-            if origin.strip()
-        ]
+        return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
 
     @property
     def sqlite_database_path(self) -> Path | None:

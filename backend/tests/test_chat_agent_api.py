@@ -6,6 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.api.routes.chat import get_chat_agent
+from app.core.config import get_settings
 from app.main import app
 from app.schemas.book_index import BookIndex, IndexedChapter, IndexedCharacter, IndexedEvent
 from app.schemas.chapter_split import ChapterSplitReview, ChapterSplitRule
@@ -187,6 +188,31 @@ class FakeChatAgent:
             ],
         )
 
+    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+        assert "harness errors" in prompt
+        match = re.search(r"chapter_id: ([^\n]+)", prompt)
+        chapter_id = match.group(1).strip() if match else "chapter_001"
+        return await self.generate_script(f"章节 ID：{chapter_id}")
+
+
+class RejectedScriptFakeChatAgent(FakeChatAgent):
+    def __init__(self) -> None:
+        self.repair_count = 0
+
+    async def generate_script(self, prompt: str) -> ScreenplayYaml:
+        screenplay = await super().generate_script(prompt)
+        screenplay.scenes[0].adaptation_notes = None
+        return screenplay
+
+    async def repair_script(self, prompt: str) -> ScreenplayYaml:
+        self.repair_count += 1
+        assert "harness errors" in prompt
+        match = re.search(r"chapter_id: ([^\n]+)", prompt)
+        chapter_id = match.group(1).strip() if match else "chapter_001"
+        screenplay = await super().generate_script(f"章节 ID：{chapter_id}")
+        screenplay.scenes[0].adaptation_notes = None
+        return screenplay
+
 
 def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -> None:
     content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
@@ -289,6 +315,76 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             )
             assert version_response.status_code == 200
             assert "scenes:" in version_response.json()["script_yaml"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_confirmation_preserves_rejected_draft_when_repairs_fail() -> None:
+    content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
+    fake_agent = RejectedScriptFakeChatAgent()
+    app.dependency_overrides[get_chat_agent] = lambda: fake_agent
+    try:
+        with TestClient(app) as client:
+            session_id = client.post("/chat/sessions", json={}).json()["id"]
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/runs/stream",
+                json={
+                    "message": "上传小说。",
+                    "source_file_name": "long_chaptered.txt",
+                    "source_text": content,
+                },
+            ) as response:
+                events = parse_sse_events(response.read().decode())
+
+            confirmation_id = next(
+                data["id"] for name, data in events if name == "tool.confirm.required"
+            )
+
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream",
+                json={"action": "confirm", "message": "确认这个分章。"},
+            ) as response:
+                assert response.status_code == 200
+                confirm_events = parse_sse_events(response.read().decode())
+
+            validation_event = next(
+                data for name, data in confirm_events if name == "validation.completed"
+            )
+            rejected_version_id = validation_event["rejected_version_id"]
+            expected_attempts = get_settings().script_repair_max_attempts
+            assert validation_event["validation_status"] == "rejected"
+            assert validation_event["accepted_version_id"] is None
+            assert rejected_version_id
+            assert validation_event["repair_attempt_count"] == expected_attempts
+            assert validation_event["validation_report"]["accepted"] is False
+            assert fake_agent.repair_count == expected_attempts
+
+            script_asset_event = next(
+                data
+                for name, data in confirm_events
+                if name == "asset.updated" and data["asset"] == "script_yaml"
+            )
+            assert script_asset_event["validation_status"] == "rejected"
+            assert script_asset_event["rejected_version_id"] == rejected_version_id
+            assert script_asset_event["accepted_version_id"] is None
+
+            completed_event = confirm_events[-1]
+            assert completed_event[0] == "run.completed_with_errors"
+            assert completed_event[1]["rejected_version_id"] == rejected_version_id
+
+            detail = client.get(f"/chat/sessions/{session_id}").json()
+            latest_version = detail["latest_versions"][-1]
+            assert latest_version["id"] == rejected_version_id
+            assert latest_version["validation_status"] == "rejected"
+            assert detail["messages"][-1]["metadata"]["run_status"] == "completed_with_errors"
+
+            version_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions/{rejected_version_id}"
+            )
+            assert version_response.status_code == 200
+            assert "adaptation_notes: null" in version_response.json()["script_yaml"]
     finally:
         app.dependency_overrides.clear()
 

@@ -63,6 +63,25 @@ class ChatRunRecorder:
         await self.chat.touch_session(chat_session)
         await self.session.commit()
 
+    async def complete_run_with_errors(
+        self,
+        run: ChatRunRecord,
+        chat_session: ChatSessionRecord,
+        content: str,
+        error_message: str | None = None,
+    ) -> None:
+        assistant = await self.add_message(
+            session_id=chat_session.id,
+            role=ChatMessageRole.assistant,
+            content=content,
+            metadata={"run_status": ChatRunStatus.completed_with_errors.value},
+        )
+        run.assistant_message_id = assistant.id
+        run.status = ChatRunStatus.completed_with_errors.value
+        run.error_message = error_message
+        await self.chat.touch_session(chat_session)
+        await self.session.commit()
+
     async def fail_run(self, run: ChatRunRecord, error_message: str) -> None:
         run.status = ChatRunStatus.failed.value
         run.error_message = error_message

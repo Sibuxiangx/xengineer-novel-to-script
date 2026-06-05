@@ -331,6 +331,27 @@ class ChatAgentService:
             raise
         for event in toolbox.events:
             yield event
+        if toolbox.completed_with_errors:
+            content = toolbox.last_validation_error_message or (
+                "操作已执行，但剧本 YAML 未通过 harness，当前结果已保存为 rejected draft。"
+            )
+            await self.recorder.complete_run_with_errors(
+                run=run,
+                chat_session=session,
+                content=content,
+                error_message=content,
+            )
+            yield self._event("message.delta", {"content": content})
+            yield self._event(
+                "run.completed_with_errors",
+                {
+                    "run_id": run.id,
+                    "message": content,
+                    "rejected_version_id": toolbox.last_rejected_version_id,
+                    "repair_attempt_count": toolbox.last_repair_attempt_count,
+                },
+            )
+            return
         await self.recorder.complete_run(
             run=run,
             chat_session=session,
@@ -380,6 +401,28 @@ class ChatAgentService:
             raise
         for event in toolbox.events[event_offset:]:
             yield event
+        if toolbox.completed_with_errors:
+            content = toolbox.last_validation_error_message or (
+                "分章已确认，剧情索引已生成，但剧本 YAML 未通过 harness，"
+                "当前结果已保存为 rejected draft。"
+            )
+            await self.recorder.complete_run_with_errors(
+                run=run,
+                chat_session=session,
+                content=content,
+                error_message=content,
+            )
+            yield self._event("message.delta", {"content": content})
+            yield self._event(
+                "run.completed_with_errors",
+                {
+                    "run_id": run.id,
+                    "message": content,
+                    "rejected_version_id": toolbox.last_rejected_version_id,
+                    "repair_attempt_count": toolbox.last_repair_attempt_count,
+                },
+            )
+            return
         await self.recorder.complete_run(
             run=run,
             chat_session=session,

@@ -42,6 +42,7 @@ class ChatRunStatus(StrEnum):
     running = "running"
     waiting_confirmation = "waiting_confirmation"
     completed = "completed"
+    completed_with_errors = "completed_with_errors"
     failed = "failed"
 
 

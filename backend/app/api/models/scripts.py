@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,18 @@ class ScriptGenerateResponse(BaseModel):
         default=None,
         description="Accepted version ID if validation passed.",
     )
+    rejected_version_id: str | None = Field(
+        default=None,
+        description="Rejected draft version ID if validation failed after repairs.",
+    )
+    repair_attempt_count: int = Field(
+        0,
+        description="Automatic repair attempts performed before returning this result.",
+    )
+    validation_status: Literal["accepted", "rejected"] = Field(
+        "accepted",
+        description="Final persisted validation status for the YAML result.",
+    )
 
 
 class ScriptEditRequest(BaseModel):
@@ -52,6 +65,18 @@ class ScriptEditResponse(BaseModel):
         description="Harness validation report.",
     )
     accepted_version_id: str | None = Field(default=None, description="Accepted version ID.")
+    rejected_version_id: str | None = Field(
+        default=None,
+        description="Rejected draft version ID if validation failed after repairs.",
+    )
+    repair_attempt_count: int = Field(
+        0,
+        description="Automatic repair attempts performed before returning this result.",
+    )
+    validation_status: Literal["accepted", "rejected"] = Field(
+        "accepted",
+        description="Final persisted validation status for the YAML result.",
+    )
 
 
 class ScriptRepairRequest(BaseModel):
@@ -74,7 +99,10 @@ class ScriptVersionResponse(BaseModel):
 
 
 class ScriptVersionListResponse(BaseModel):
-    versions: list[ScriptVersionResponse] = Field(..., description="Accepted script versions.")
+    versions: list[ScriptVersionResponse] = Field(
+        ...,
+        description="Screenplay YAML versions, including accepted versions and rejected drafts.",
+    )
 
 
 class ScriptVersionDetailResponse(BaseModel):

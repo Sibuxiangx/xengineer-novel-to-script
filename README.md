@@ -86,6 +86,7 @@ AI 能力说明：
 
 - 生产路径不会使用静态兜底内容冒充模型结果。
 - 如果缺少 `DEEPSEEK_API_KEY` 或模型服务异常，接口会返回明确错误。
+- 后端使用 Pydantic AI 的 `DeepSeekProvider` 调用 `deepseek-v4-pro`，兼容 DeepSeek 思考模式下的工具调用。
 - 测试通过依赖注入 mock 模型边界，不影响生产路径真实调用。
 
 剧本版本规则：
@@ -103,6 +104,15 @@ uv run ruff check .
 uv run pyright
 ```
 
+真实 DeepSeek 链路冒烟：
+
+```bash
+cd backend
+uv run python -m app.tools.deepseek_smoke
+```
+
+该命令会读取 `.env` 中的 `DEEPSEEK_API_KEY`，使用临时 SQLite 与临时 artifacts 完成“创建项目 -> 导入三章短文 -> 生成 book_index.json -> 生成 script.yaml -> harness 校验并保存版本”的真实链路。默认不会保留运行产物；需要保留时可执行 `uv run python -m app.tools.deepseek_smoke --keep-artifacts`，产物会写入已被 git 忽略的 `backend/data/deepseek-smoke/`。
+
 ## 依赖说明
 
 当前后端依赖：
@@ -113,6 +123,7 @@ uv run pyright
 - SQLAlchemy async / aiosqlite：SQLite 异步数据访问。
 - python-dotenv：本地环境变量管理。
 - PyYAML：后续 YAML 解析、校验与导出。
+- socksio：支持本地 SOCKS 代理环境下的 DeepSeek HTTP 调用。
 
 当前后端开发依赖：
 

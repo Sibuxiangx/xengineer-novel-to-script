@@ -5,6 +5,7 @@ import asyncio
 import json
 import sys
 import tempfile
+from collections.abc import Awaitable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,14 @@ def _safe_error(exc: Exception, settings: Settings) -> str:
     return message
 
 
-async def run_smoke(working_root: Path) -> dict[str, Any]:
+async def _with_timeout(label: str, awaitable: Awaitable[Any], timeout_seconds: float) -> Any:
+    try:
+        return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+    except TimeoutError as exc:
+        raise RuntimeError(f"{label} timed out after {timeout_seconds:g}s.") from exc
+
+
+async def run_smoke(working_root: Path, timeout_seconds: float) -> dict[str, Any]:
     settings = _settings_for_smoke(working_root)
     settings.ensure_local_paths()
     if (
@@ -102,15 +110,23 @@ async def run_smoke(working_root: Path) -> dict[str, Any]:
             )
 
             _log("2/4 真实调用 DeepSeek 生成 book_index.json")
-            book_index_response = await book_index_service.build_index(
-                project.id,
-                force_rebuild=True,
+            book_index_response = await _with_timeout(
+                "build_index",
+                book_index_service.build_index(
+                    project.id,
+                    force_rebuild=True,
+                ),
+                timeout_seconds,
             )
 
             _log("3/4 真实调用 DeepSeek 生成 script.yaml")
-            script_response = await script_service.generate_script(
-                project.id,
-                force_regenerate=True,
+            script_response = await _with_timeout(
+                "generate_script",
+                script_service.generate_script(
+                    project.id,
+                    force_regenerate=True,
+                ),
+                timeout_seconds,
             )
 
             _log("4/4 运行 harness 并汇总结果")
@@ -129,6 +145,7 @@ async def run_smoke(working_root: Path) -> dict[str, Any]:
                 "created_at": datetime.now(UTC).isoformat(),
                 "model": settings.deepseek_model,
                 "base_url": settings.deepseek_base_url,
+                "timeout_seconds": timeout_seconds,
                 "project_id": project.id,
                 "chapter_count": imported.detected_chapter_count,
                 "book_index": {
@@ -159,6 +176,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Persist smoke SQLite and project artifacts under backend/data/deepseek-smoke.",
     )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=180.0,
+        help="Per-model-step timeout in seconds. Defaults to 180.",
+    )
     return parser.parse_args()
 
 
@@ -168,7 +191,7 @@ async def async_main() -> int:
         working_root = Path("data") / "deepseek-smoke"
         working_root.mkdir(parents=True, exist_ok=True)
         try:
-            result = await run_smoke(working_root)
+            result = await run_smoke(working_root, args.timeout_seconds)
         except (AgentConfigurationError, AgentExecutionError, RuntimeError) as exc:
             settings = _settings_for_smoke(working_root)
             print(
@@ -185,7 +208,7 @@ async def async_main() -> int:
     with tempfile.TemporaryDirectory(prefix="xengineer-deepseek-smoke-") as temp_dir:
         working_root = Path(temp_dir)
         try:
-            result = await run_smoke(working_root)
+            result = await run_smoke(working_root, args.timeout_seconds)
         except (AgentConfigurationError, AgentExecutionError, RuntimeError) as exc:
             settings = _settings_for_smoke(working_root)
             print(

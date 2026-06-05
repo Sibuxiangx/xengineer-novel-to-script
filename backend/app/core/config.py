@@ -55,6 +55,11 @@ class Settings(BaseSettings):
         ge=100,
         description="Maximum source characters included per chapter excerpt block.",
     )
+    sse_heartbeat_interval_seconds: float = Field(
+        10.0,
+        gt=0,
+        description="Interval for SSE heartbeat events while long agent/tool tasks are running.",
+    )
     backend_cors_origins: str = Field(
         "http://localhost:5173",
         description="Comma-separated list of allowed frontend origins.",

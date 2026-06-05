@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -214,6 +215,12 @@ class RejectedScriptFakeChatAgent(FakeChatAgent):
         return screenplay
 
 
+class SlowSourceIngestionFakeChatAgent(FakeChatAgent):
+    async def run_source_ingestion_tools(self, prompt: str, deps: Any) -> str:
+        await asyncio.sleep(0.02)
+        return await super().run_source_ingestion_tools(prompt, deps)
+
+
 def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -> None:
     content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
     app.dependency_overrides[get_chat_agent] = lambda: FakeChatAgent()
@@ -240,6 +247,7 @@ def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -
             assert "tool.call.started" in event_names
             assert "tool.confirm.required" in event_names
             assert "run.waiting_confirmation" in event_names
+            assert "run.progress" in event_names
 
             confirmation_event = next(
                 data for name, data in events if name == "tool.confirm.required"
@@ -253,6 +261,42 @@ def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -
             assert detail["session"]["project_id"]
             assert detail["session"]["pending_confirmation_count"] == 1
             assert detail["messages"][-1]["role"] == "assistant"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_stream_emits_heartbeat_while_agent_task_is_running() -> None:
+    content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
+    settings = get_settings().model_copy(update={"sse_heartbeat_interval_seconds": 0.001})
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_chat_agent] = lambda: SlowSourceIngestionFakeChatAgent()
+    try:
+        with TestClient(app) as client:
+            session_id = client.post("/chat/sessions", json={}).json()["id"]
+
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/runs/stream",
+                json={
+                    "message": "我上传了一篇小说，请开始改编。",
+                    "source_file_name": "long_chaptered.txt",
+                    "source_text": content,
+                    "screenplay_format": "short_drama",
+                },
+            ) as response:
+                assert response.status_code == 200
+                events = parse_sse_events(response.read().decode())
+
+            event_names = [name for name, _ in events]
+            assert "heartbeat" in event_names
+            progress_events = [
+                data
+                for name, data in events
+                if name == "run.progress" and data["stage"] == "source_ingestion_agent"
+            ]
+            assert progress_events[0]["status"] == "started"
+            assert progress_events[-1]["status"] == "completed"
+            assert progress_events[-1]["duration_ms"] >= 1
     finally:
         app.dependency_overrides.clear()
 
@@ -291,6 +335,22 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             ]
             assert asset_updates == ["chapters", "book_index", "script_yaml"]
             assert confirm_events[-1][0] == "run.completed"
+            event_names = [event[0] for event in confirm_events]
+            assert event_names.count("model.usage.estimated") >= 2
+            assert "run.progress" in event_names
+
+            completed_tool = next(
+                data
+                for name, data in confirm_events
+                if name == "tool.call.completed"
+            )
+            assert completed_tool["duration_ms"] >= 0
+            script_asset = next(
+                data
+                for name, data in confirm_events
+                if name == "asset.updated" and data["asset"] == "script_yaml"
+            )
+            assert script_asset["context_report"]["estimated_tokens"] > 0
 
             detail = client.get(f"/chat/sessions/{session_id}").json()
             assert detail["session"]["pending_confirmation_count"] == 0

@@ -46,6 +46,10 @@ class ChatToolCallResponse(BaseModel):
     input: dict[str, Any] | None = Field(default=None, description="Tool input summary.")
     output: dict[str, Any] | None = Field(default=None, description="Tool output summary.")
     error_message: str | None = Field(default=None, description="Tool error message.")
+    duration_ms: int | None = Field(
+        default=None,
+        description="Tool execution duration in milliseconds, when finished.",
+    )
     created_at: datetime = Field(..., description="Tool call creation time.")
     updated_at: datetime = Field(..., description="Tool call update time.")
 

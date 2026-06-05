@@ -3,8 +3,8 @@ from typing import TypeVar
 
 from pydantic import SecretStr
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+from pydantic_ai.providers.deepseek import DeepSeekProvider
 
 from app.core.config import Settings
 from app.schemas.book_index import BookIndex
@@ -68,19 +68,21 @@ class ScreenplayAgent:
         task_prompt_name: str,
     ) -> OutputT:
         api_key = self._require_api_key(self.settings.deepseek_api_key)
-        provider = OpenAIProvider(
-            base_url=self.settings.deepseek_base_url,
-            api_key=api_key,
-        )
-        model = OpenAIChatModel(self.settings.deepseek_model, provider=provider)
-        agent = Agent(
-            model=model,
-            output_type=output_type,
-            system_prompt=self.load_prompt("system.zh.md"),
-            instructions=self.load_prompt(task_prompt_name),
-            retries=2,
-        )
         try:
+            provider = DeepSeekProvider(api_key=api_key)
+            model = OpenAIChatModel(self.settings.deepseek_model, provider=provider)
+            model_settings: OpenAIChatModelSettings = {
+                "extra_body": {"thinking": {"type": "enabled"}},
+                "openai_reasoning_effort": "high",
+            }
+            agent = Agent(
+                model=model,
+                output_type=output_type,
+                system_prompt=self.load_prompt("system.zh.md"),
+                instructions=self.load_prompt(task_prompt_name),
+                model_settings=model_settings,
+                retries=2,
+            )
             result = await agent.run(prompt)
         except Exception as exc:  # pragma: no cover - provider failure path
             raise AgentExecutionError(str(exc)) from exc

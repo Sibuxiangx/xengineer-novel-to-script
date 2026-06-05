@@ -3,9 +3,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.screenplay_agent import (
+    AgentConfigurationError,
+    AgentExecutionError,
+    ScreenplayAgent,
+)
 from app.api.models.projects import (
     ChapterListResponse,
     ChapterResponse,
+    ChapterSplitInferenceRequest,
+    ChapterSplitInferenceResponse,
     ChapterUpdateRequest,
     ProjectCreateRequest,
     ProjectResponse,
@@ -14,6 +21,10 @@ from app.api.models.projects import (
 )
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
+from app.services.chapter_split_inference_service import (
+    ChapterSplitInferenceProjectNotFoundError,
+    ChapterSplitInferenceService,
+)
 from app.services.project_service import (
     ChapterNotFoundError,
     EmptyChapterUpdateError,
@@ -29,6 +40,20 @@ def get_project_service(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ProjectService:
     return ProjectService(session=session, settings=settings)
+
+
+def get_chapter_split_agent(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ScreenplayAgent:
+    return ScreenplayAgent(settings)
+
+
+def get_chapter_split_inference_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    agent: Annotated[ScreenplayAgent, Depends(get_chapter_split_agent)],
+) -> ChapterSplitInferenceService:
+    return ChapterSplitInferenceService(session=session, settings=settings, agent=agent)
 
 
 @router.post(
@@ -86,6 +111,43 @@ async def import_txt_ebook(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
+        ) from exc
+
+
+@router.post(
+    "/{project_id}/ebook/infer-split-rule",
+    response_model=ChapterSplitInferenceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Infer TXT chapter split rule",
+    description=(
+        "Peek at head, middle, and tail samples of a TXT ebook, ask the DeepSeek agent to infer "
+        "a line-based chapter heading rule, and preview local splitting results."
+    ),
+)
+async def infer_chapter_split_rule(
+    project_id: Annotated[str, Path(description="Stable project identifier.")],
+    request: ChapterSplitInferenceRequest,
+    service: Annotated[
+        ChapterSplitInferenceService,
+        Depends(get_chapter_split_inference_service),
+    ],
+) -> ChapterSplitInferenceResponse:
+    try:
+        return await service.infer_rule(project_id, request)
+    except ChapterSplitInferenceProjectNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        ) from exc
+    except AgentConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "agent_configuration_error", "detail": str(exc)},
+        ) from exc
+    except AgentExecutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "agent_execution_error", "detail": str(exc)},
         ) from exc
 
 

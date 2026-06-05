@@ -75,7 +75,8 @@ class ProjectService:
         if project is None:
             raise ProjectNotFoundError(project_id)
 
-        detected = self.splitter.split(request.content)
+        split_rule = request.chapter_split_rule if request.split_strategy == "custom_rule" else None
+        detected = self.splitter.split(request.content, rule=split_rule)
         if request.replace_existing:
             await self.chapters.delete_by_project(project_id)
             self.store.clear_chapters(project_id)

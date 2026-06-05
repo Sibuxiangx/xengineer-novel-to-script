@@ -9,6 +9,7 @@ from app.agents.screenplay_agent import (
     AgentExecutionError,
     ScreenplayAgent,
 )
+from app.api.models.book_index import BookIndexResponse
 from app.api.models.chat import (
     ChatConfirmationActionRequest,
     ChatRunStreamRequest,
@@ -18,11 +19,16 @@ from app.api.models.chat import (
     ChatSseEvent,
 )
 from app.api.models.common import ApiErrorResponse
+from app.api.models.projects import ChapterListResponse
+from app.api.models.scripts import ScriptVersionDetailResponse, ScriptVersionListResponse
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.services.chat_agent_service import (
     ChatAgentService,
+    ChatAssetNotFoundError,
+    ChatScriptVersionNotFoundError,
     ChatSessionNotFoundError,
+    ChatSessionProjectRequiredError,
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -179,3 +185,120 @@ async def stream_chat_confirmation_action(
         service.stream_confirmation_action(session_id, confirmation_id, request),
         media_type="text/event-stream",
     )
+
+
+@router.get(
+    "/sessions/{session_id}/assets/chapters",
+    response_model=ChapterListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List chat project chapters",
+    description="Return imported chapters for the project linked to a chat session.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},
+    },
+)
+async def list_chat_session_chapters(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ChapterListResponse:
+    try:
+        return await service.list_session_chapters(session_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+    except ChatSessionProjectRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "chat_project_required", "detail": "Chat session has no project."},
+        ) from exc
+
+
+@router.get(
+    "/sessions/{session_id}/assets/book-index",
+    response_model=BookIndexResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get chat project book index",
+    description="Return book_index.json for the project linked to a chat session.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},
+    },
+)
+async def get_chat_session_book_index(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> BookIndexResponse:
+    try:
+        return await service.get_session_book_index(session_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+    except ChatSessionProjectRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "chat_project_required", "detail": "Chat session has no project."},
+        ) from exc
+    except ChatAssetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "chat_asset_not_found", "detail": "Book index not found."},
+        ) from exc
+
+
+@router.get(
+    "/sessions/{session_id}/assets/scripts/versions",
+    response_model=ScriptVersionListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List chat project screenplay versions",
+    description=(
+        "Return accepted screenplay YAML versions for the project linked to a chat session."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},
+    },
+)
+async def list_chat_session_script_versions(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ScriptVersionListResponse:
+    try:
+        return await service.list_session_script_versions(session_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+    except ChatSessionProjectRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "chat_project_required", "detail": "Chat session has no project."},
+        ) from exc
+
+
+@router.get(
+    "/sessions/{session_id}/assets/scripts/versions/{version_id}",
+    response_model=ScriptVersionDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get a chat project screenplay version",
+    description="Return one accepted screenplay YAML version for the linked chat project.",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},
+    },
+)
+async def get_chat_session_script_version(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    version_id: Annotated[str, Path(description="Stable script version identifier.")],
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ScriptVersionDetailResponse:
+    try:
+        return await service.get_session_script_version(session_id, version_id)
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+    except ChatSessionProjectRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "chat_project_required", "detail": "Chat session has no project."},
+        ) from exc
+    except ChatScriptVersionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "script_version_not_found", "detail": "Script version not found."},
+        ) from exc

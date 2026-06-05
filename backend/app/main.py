@@ -24,8 +24,8 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         summary="AI-assisted novel-to-screenplay adaptation backend.",
         description=(
-            "Provides project, chapter, YAML generation, validation, repair, and export APIs "
-            "for the XEngineer novel-to-script tool."
+            "Provides a chat-first agent API for importing TXT novels, confirming chapter "
+            "splits, generating screenplay YAML, and reading generated assets."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -42,4 +42,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

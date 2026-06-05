@@ -255,6 +255,27 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             assert detail["session"]["pending_confirmation_count"] == 0
             assert detail["latest_versions"]
             assert detail["messages"][-1]["content"].startswith("分章已确认")
+
+            chapters_response = client.get(f"/chat/sessions/{session_id}/assets/chapters")
+            assert chapters_response.status_code == 200
+            assert len(chapters_response.json()["chapters"]) == 5
+
+            book_index_response = client.get(f"/chat/sessions/{session_id}/assets/book-index")
+            assert book_index_response.status_code == 200
+            assert book_index_response.json()["book_index"]["title"] == "雾港来信改编"
+
+            version_id = detail["latest_versions"][-1]["id"]
+            versions_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions"
+            )
+            assert versions_response.status_code == 200
+            assert versions_response.json()["versions"][-1]["id"] == version_id
+
+            version_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions/{version_id}"
+            )
+            assert version_response.status_code == 200
+            assert "scenes:" in version_response.json()["script_yaml"]
     finally:
         app.dependency_overrides.clear()
 
@@ -269,7 +290,13 @@ def test_chat_routes_are_documented_in_openapi() -> None:
     confirm_route = schema["paths"][
         "/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream"
     ]["post"]
+    chapters_route = schema["paths"]["/chat/sessions/{session_id}/assets/chapters"]["get"]
+    versions_route = schema["paths"][
+        "/chat/sessions/{session_id}/assets/scripts/versions"
+    ]["get"]
     assert create_route["summary"] == "Create a chat session"
     assert "ChatSessionCreateRequest" in str(create_route["requestBody"])
     assert stream_route["summary"] == "Stream an agent chat run"
     assert confirm_route["summary"] == "Stream a confirmation action"
+    assert chapters_route["summary"] == "List chat project chapters"
+    assert versions_route["summary"] == "List chat project screenplay versions"

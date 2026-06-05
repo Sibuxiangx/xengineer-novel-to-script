@@ -1,9 +1,9 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from app.api.models.common import ValidationReportResponse
+from app.schemas.yaml_patch import YamlPatchOperation
 
 
 class ScriptValidateRequest(BaseModel):
@@ -36,21 +36,6 @@ class ScriptGenerateResponse(BaseModel):
         default=None,
         description="Accepted version ID if validation passed.",
     )
-
-
-class YamlPatchOperation(BaseModel):
-    type: Literal[
-        "replace_script",
-        "patch_scene",
-        "replace_scene",
-        "insert_event",
-        "patch_event",
-        "delete_event",
-        "repair_validation_errors",
-    ] = Field(..., description="Structured YAML operation type.")
-    target_path: str = Field(..., description="Stable target path such as scenes.scene_001.")
-    reason: str = Field(..., description="Chinese explanation for why this operation is needed.")
-    payload: dict = Field(default_factory=dict, description="Operation payload.")
 
 
 class ScriptEditRequest(BaseModel):
@@ -90,3 +75,21 @@ class ScriptVersionResponse(BaseModel):
 
 class ScriptVersionListResponse(BaseModel):
     versions: list[ScriptVersionResponse] = Field(..., description="Accepted script versions.")
+
+
+class ScriptVersionDetailResponse(BaseModel):
+    version: ScriptVersionResponse = Field(..., description="Script version metadata.")
+    script_yaml: str = Field(..., description="Version YAML content.")
+
+
+class ScriptRestoreResponse(BaseModel):
+    project_id: str = Field(..., description="Project identifier.")
+    current_version_id: str = Field(..., description="Restored script version ID.")
+    script_yaml: str = Field(..., description="Restored YAML content.")
+
+
+class ScriptExportResponse(BaseModel):
+    project_id: str = Field(..., description="Project identifier.")
+    file_name: str = Field(..., description="Suggested export file name.")
+    media_type: str = Field(..., description="Export media type.")
+    content: str = Field(..., description="Export content.")

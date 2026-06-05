@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import SecretStr
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 
+from app.agents.deps import AgentDeps
 from app.core.config import Settings
 from app.schemas.book_index import BookIndex
 from app.schemas.chapter_split import ChapterSplitReview, ChapterSplitRule
@@ -30,10 +31,23 @@ class ScreenplayAgent:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._deps = AgentDeps(settings=settings)
+        self._prompt_cache: dict[str, str] = {}
+        self._model: OpenAIChatModel | None = None
+        self._agent: Agent[AgentDeps, Any] | None = None
+        self._model_settings: OpenAIChatModelSettings = {
+            "extra_body": {"thinking": {"type": "enabled"}},
+            "openai_reasoning_effort": "high",
+        }
 
     def load_prompt(self, prompt_name: str) -> str:
+        cached = self._prompt_cache.get(prompt_name)
+        if cached is not None:
+            return cached
         prompt_path = PROMPT_DIR / prompt_name
-        return prompt_path.read_text(encoding="utf-8")
+        prompt = prompt_path.read_text(encoding="utf-8")
+        self._prompt_cache[prompt_name] = prompt
+        return prompt
 
     async def build_book_index(self, prompt: str) -> BookIndex:
         return await self._run_structured(
@@ -97,26 +111,36 @@ class ScreenplayAgent:
         output_type: type[OutputT],
         task_prompt_name: str,
     ) -> OutputT:
-        api_key = self._require_api_key(self.settings.deepseek_api_key)
         try:
-            provider = DeepSeekProvider(api_key=api_key)
-            model = OpenAIChatModel(self.settings.deepseek_model, provider=provider)
-            model_settings: OpenAIChatModelSettings = {
-                "extra_body": {"thinking": {"type": "enabled"}},
-                "openai_reasoning_effort": "high",
-            }
-            agent = Agent(
-                model=model,
+            result = await self._get_agent().run(
+                prompt,
                 output_type=output_type,
-                system_prompt=self.load_prompt("system.zh.md"),
                 instructions=self.load_prompt(task_prompt_name),
-                model_settings=model_settings,
-                retries=2,
+                deps=self._deps,
             )
-            result = await agent.run(prompt)
+        except AgentConfigurationError:
+            raise
         except Exception as exc:  # pragma: no cover - provider failure path
             raise AgentExecutionError(str(exc)) from exc
-        return result.output
+        return cast(OutputT, result.output)
+
+    def _get_agent(self) -> Agent[AgentDeps, Any]:
+        if self._agent is None:
+            self._agent = Agent(
+                model=self._get_model(),
+                deps_type=AgentDeps,
+                system_prompt=self.load_prompt("system.zh.md"),
+                model_settings=self._model_settings,
+                retries=2,
+            )
+        return self._agent
+
+    def _get_model(self) -> OpenAIChatModel:
+        if self._model is None:
+            api_key = self._require_api_key(self.settings.deepseek_api_key)
+            provider = DeepSeekProvider(api_key=api_key)
+            self._model = OpenAIChatModel(self.settings.deepseek_model, provider=provider)
+        return self._model
 
     def _require_api_key(self, value: SecretStr | None) -> str:
         if value is None or not value.get_secret_value().strip():

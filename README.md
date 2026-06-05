@@ -65,11 +65,20 @@ uv run fastapi dev app/main.py
 2. `POST /projects/{project_id}/ebook/import-txt` 导入 TXT 正文并自动分章。
 3. `GET /projects/{project_id}/chapters` 查看导入后的章节。
 4. `PATCH /projects/{project_id}/chapters/{chapter_id}` 手动编辑章节标题或正文。
+5. `POST /projects/{project_id}/book-index` 调用 DeepSeek Agent 生成 `book_index.json`。
+6. `GET /projects/{project_id}/book-index` 读取已生成的剧情索引。
+7. `POST /projects/{project_id}/scripts/validate` 使用 harness 校验剧本 YAML。
 
 分章规则：
 
 - 能识别类似 `第一章 标题`、`第1章 标题`、`Chapter 1` 的章节标题。
 - 如果短篇文本没有分章标题，会保存为单章 `全文`，用户后续仍可手动编辑。
+
+AI 能力说明：
+
+- 生产路径不会使用静态兜底内容冒充模型结果。
+- 如果缺少 `DEEPSEEK_API_KEY` 或模型服务异常，接口会返回明确错误。
+- 测试通过依赖注入 mock 模型边界，不影响生产路径真实调用。
 
 运行测试：
 

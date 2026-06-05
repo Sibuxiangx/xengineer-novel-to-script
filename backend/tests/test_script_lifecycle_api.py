@@ -10,6 +10,7 @@ from app.schemas.book_index import BookIndex, IndexedChapter, IndexedCharacter, 
 from app.schemas.screenplay import (
     AdaptationNotes,
     Character,
+    EventType,
     Location,
     ProjectMetadata,
     Scene,
@@ -17,6 +18,7 @@ from app.schemas.screenplay import (
     ScreenplayFormat,
     ScreenplayYaml,
     ScriptEvent,
+    SourceReference,
 )
 from app.schemas.yaml_patch import YamlPatchOperation, YamlPatchPlan
 
@@ -36,8 +38,10 @@ def _extract_chapter_id(prompt: str) -> str:
 def _make_book_index(prompt: str) -> BookIndex:
     chapter_id = _extract_chapter_id(prompt)
     return BookIndex(
+        schema_version="1.0",
         book_id="proj_lifecycle",
         title="五章长篇",
+        language="zh-CN",
         chapter_count=1,
         chapters=[
             IndexedChapter(
@@ -94,11 +98,11 @@ def _make_screenplay(chapter_id: str, conflict: str = "林栩想查清剧本来�
                 id="scene_001",
                 title="旧剧本出现",
                 source_refs=[
-                    {
-                        "chapter_id": chapter_id,
-                        "range_hint": "开头至收到戏票",
-                        "usage": "adapted",
-                    }
+                    SourceReference(
+                        chapter_id=chapter_id,
+                        range_hint="开头至收到戏票",
+                        usage="adapted",
+                    )
                 ],
                 setting=SceneSetting(
                     location_id="loc_theater",
@@ -110,12 +114,12 @@ def _make_screenplay(chapter_id: str, conflict: str = "林栩想查清剧本来�
                 events=[
                     ScriptEvent(
                         id="event_001",
-                        type="action",
+                        type=EventType.action,
                         content="林栩翻开旧剧本。",
                     ),
                     ScriptEvent(
                         id="event_002",
-                        type="dialogue",
+                        type=EventType.dialogue,
                         character_id="char_lin",
                         content="这不是我写的结局。",
                     ),

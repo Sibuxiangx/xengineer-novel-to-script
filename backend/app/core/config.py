@@ -34,6 +34,27 @@ class Settings(BaseSettings):
         le=5,
         description="Maximum automatic YAML repair attempts after harness rejection.",
     )
+    context_reserved_output_tokens: int = Field(
+        80_000,
+        ge=1,
+        description="Tokens reserved for model output before input context packing.",
+    )
+    context_reserved_instruction_tokens: int = Field(
+        20_000,
+        ge=1,
+        description="Tokens reserved for system and task instructions before context packing.",
+    )
+    context_safety_margin_ratio: float = Field(
+        0.30,
+        ge=0,
+        lt=1,
+        description="Safety margin applied to local token estimates before packing input context.",
+    )
+    context_source_excerpt_chars: int = Field(
+        6_000,
+        ge=100,
+        description="Maximum source characters included per chapter excerpt block.",
+    )
     backend_cors_origins: str = Field(
         "http://localhost:5173",
         description="Comma-separated list of allowed frontend origins.",
@@ -77,6 +98,12 @@ class Settings(BaseSettings):
         database_path = self.sqlite_database_path
         if database_path is not None:
             database_path.parent.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def effective_context_input_budget(self) -> int:
+        reserved = self.context_reserved_output_tokens + self.context_reserved_instruction_tokens
+        available = max(1, self.model_context_limit - reserved)
+        return max(1, int(available * (1 - self.context_safety_margin_ratio)))
 
 
 @lru_cache

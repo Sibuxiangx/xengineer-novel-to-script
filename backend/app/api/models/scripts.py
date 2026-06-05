@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.api.models.common import ValidationReportResponse
 from app.schemas.yaml_patch import YamlPatchOperation
+from app.services.context_packer import ContextPackingReport
 
 
 class ScriptValidateRequest(BaseModel):
@@ -49,6 +50,10 @@ class ScriptGenerateResponse(BaseModel):
         "accepted",
         description="Final persisted validation status for the YAML result.",
     )
+    context_report: ContextPackingReport | None = Field(
+        default=None,
+        description="Context packing diagnostics for the primary model prompt.",
+    )
 
 
 class ScriptEditRequest(BaseModel):
@@ -76,6 +81,10 @@ class ScriptEditResponse(BaseModel):
     validation_status: Literal["accepted", "rejected"] = Field(
         "accepted",
         description="Final persisted validation status for the YAML result.",
+    )
+    context_report: ContextPackingReport | None = Field(
+        default=None,
+        description="Context packing diagnostics for the edit planning prompt.",
     )
 
 

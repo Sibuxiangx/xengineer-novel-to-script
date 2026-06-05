@@ -36,6 +36,7 @@ from app.schemas.chapter_split import ChapterSplitRule
 from app.schemas.chat import ProjectTitleSuggestion
 from app.services.book_index_service import BookIndexService
 from app.services.chapter_split_inference_service import ChapterSplitInferenceService
+from app.services.context_packer import ContextPackingReport
 from app.services.project_service import ProjectService
 from app.services.script_service import ScriptService
 from app.storage.project_store import ProjectStore
@@ -69,6 +70,10 @@ class BookIndexBuiltToolResult(BaseModel):
     chapter_count: int = Field(..., description="Indexed chapter count.")
     character_count: int = Field(..., description="Indexed character count.")
     location_count: int = Field(..., description="Indexed location count.")
+    context_report: ContextPackingReport | None = Field(
+        default=None,
+        description="Context packing diagnostics for the book index model prompt.",
+    )
 
 
 class ScriptGeneratedToolResult(BaseModel):
@@ -87,6 +92,10 @@ class ScriptGeneratedToolResult(BaseModel):
         ...,
         description="Final persisted validation status.",
     )
+    context_report: ContextPackingReport | None = Field(
+        default=None,
+        description="Context packing diagnostics for the generation prompt.",
+    )
 
 
 class ScriptEditedToolResult(BaseModel):
@@ -104,6 +113,10 @@ class ScriptEditedToolResult(BaseModel):
     validation_status: Literal["accepted", "rejected"] = Field(
         ...,
         description="Final persisted validation status.",
+    )
+    context_report: ContextPackingReport | None = Field(
+        default=None,
+        description="Context packing diagnostics for the edit planning prompt.",
     )
 
 
@@ -380,12 +393,22 @@ class ChatToolbox:
                 chapter_count=index.book_index.chapter_count,
                 character_count=len(index.book_index.characters),
                 location_count=len(index.book_index.locations),
+                context_report=index.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             self.events.append(
                 format_sse_event(
                     "asset.updated",
-                    {"asset": "book_index", "project_id": project_id, "file_path": index.file_path},
+                    {
+                        "asset": "book_index",
+                        "project_id": project_id,
+                        "file_path": index.file_path,
+                        "context_report": (
+                            index.context_report.model_dump(mode="json")
+                            if index.context_report is not None
+                            else None
+                        ),
+                    },
                 )
             )
         except Exception as exc:
@@ -415,6 +438,7 @@ class ChatToolbox:
                 severity=script.validation_report.severity,
                 repair_attempt_count=script.repair_attempt_count,
                 validation_status=script.validation_status,
+                context_report=script.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             self._record_validation_outcome(
@@ -424,6 +448,11 @@ class ChatToolbox:
                 rejected_version_id=script.rejected_version_id,
                 validation_report=script.validation_report.model_dump(mode="json"),
                 repair_attempt_count=script.repair_attempt_count,
+                context_report=(
+                    script.context_report.model_dump(mode="json")
+                    if script.context_report is not None
+                    else None
+                ),
             )
             self.events.append(
                 format_sse_event(
@@ -436,6 +465,11 @@ class ChatToolbox:
                         "validation_status": script.validation_status,
                         "repair_attempt_count": script.repair_attempt_count,
                         "validation_report": script.validation_report.model_dump(mode="json"),
+                        "context_report": (
+                            script.context_report.model_dump(mode="json")
+                            if script.context_report is not None
+                            else None
+                        ),
                     },
                 )
             )
@@ -466,6 +500,7 @@ class ChatToolbox:
                 accepted=edit.validation_report.accepted,
                 repair_attempt_count=edit.repair_attempt_count,
                 validation_status=edit.validation_status,
+                context_report=edit.context_report,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             self._record_validation_outcome(
@@ -475,6 +510,11 @@ class ChatToolbox:
                 rejected_version_id=edit.rejected_version_id,
                 validation_report=edit.validation_report.model_dump(mode="json"),
                 repair_attempt_count=edit.repair_attempt_count,
+                context_report=(
+                    edit.context_report.model_dump(mode="json")
+                    if edit.context_report is not None
+                    else None
+                ),
             )
             self.events.append(
                 format_sse_event(
@@ -487,6 +527,11 @@ class ChatToolbox:
                         "validation_status": edit.validation_status,
                         "repair_attempt_count": edit.repair_attempt_count,
                         "validation_report": edit.validation_report.model_dump(mode="json"),
+                        "context_report": (
+                            edit.context_report.model_dump(mode="json")
+                            if edit.context_report is not None
+                            else None
+                        ),
                     },
                 )
             )
@@ -527,6 +572,7 @@ class ChatToolbox:
         rejected_version_id: str | None,
         validation_report: dict[str, Any],
         repair_attempt_count: int,
+        context_report: dict[str, Any] | None,
     ) -> None:
         if validation_status == "rejected":
             self.completed_with_errors = True
@@ -547,6 +593,7 @@ class ChatToolbox:
                     "rejected_version_id": rejected_version_id,
                     "repair_attempt_count": repair_attempt_count,
                     "validation_report": validation_report,
+                    "context_report": context_report,
                 },
             )
         )

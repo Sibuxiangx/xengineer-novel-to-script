@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import yaml
@@ -26,6 +27,8 @@ from app.db.repositories.script_versions import ScriptVersionRepository
 from app.schemas.book_index import BookIndex
 from app.schemas.screenplay import ScreenplayYaml
 from app.schemas.yaml_patch import YamlPatchOperation
+from app.services.context_packer import ContextPackingReport
+from app.services.context_prompt_builder import ContextPromptBuilder, PackedPrompt
 from app.services.validation_service import ValidationService
 from app.services.yaml_patch_service import YamlPatchApplier
 from app.storage.project_store import ProjectStore
@@ -64,6 +67,7 @@ class ScriptService:
         self.store = ProjectStore(settings.local_artifact_root)
         self.validation = ValidationService()
         self.yaml_patches = YamlPatchApplier()
+        self.context_prompts = ContextPromptBuilder(settings)
 
     async def validate_script(self, project_id: str, script_yaml: str) -> ScriptValidateResponse:
         project = await self.projects.get(project_id)
@@ -108,11 +112,12 @@ class ScriptService:
                     if report.validation_report.accepted
                     else ValidationStatus.rejected.value
                 ),
+                context_report=None,
             )
 
         book_index = self._require_book_index(project_id)
         chapters = await self.chapters.list_by_project(project_id)
-        prompt = self._script_generation_prompt(
+        packed_prompt = self._script_generation_prompt(
             project_id=project_id,
             project_title=project.title,
             book_index=book_index,
@@ -125,7 +130,7 @@ class ScriptService:
                 for chapter in chapters
             ],
         )
-        screenplay = await self.agent.generate_script(prompt)
+        screenplay = await self.agent.generate_script(packed_prompt.prompt)
         script_yaml = self._dump_screenplay(screenplay)
         report = await self.validate_script(project_id, script_yaml)
         script_yaml, report, repair_attempt_count = await self._repair_until_accepted(
@@ -174,6 +179,7 @@ class ScriptService:
                 if report.validation_report.accepted
                 else ValidationStatus.rejected.value
             ),
+            context_report=packed_prompt.report,
         )
 
     async def edit_script(
@@ -187,13 +193,13 @@ class ScriptService:
             raise ScriptServiceProjectNotFoundError(project_id)
         current_yaml = self._require_current_script(project_id)
         book_index = self._load_book_index(project_id)
-        prompt = self._edit_prompt(
+        packed_prompt = self._edit_prompt(
             instruction=instruction,
             target_path=target_path,
             current_yaml=current_yaml,
             book_index=book_index,
         )
-        plan = await self.agent.plan_yaml_edit(prompt)
+        plan = await self.agent.plan_yaml_edit(packed_prompt.prompt)
         patched_yaml = self._apply_operations(current_yaml, plan.operations)
         report = await self.validate_script(project_id, patched_yaml)
         patched_yaml, report, repair_attempt_count = await self._repair_until_accepted(
@@ -243,6 +249,7 @@ class ScriptService:
                 if report.validation_report.accepted
                 else ValidationStatus.rejected.value
             ),
+            context_report=packed_prompt.report,
         )
 
     async def repair_script(
@@ -255,7 +262,12 @@ class ScriptService:
         if project is None:
             raise ScriptServiceProjectNotFoundError(project_id)
         book_index = self._load_book_index(project_id)
-        repaired_yaml, report, repair_attempt_count = await self._repair_from_report_json(
+        (
+            repaired_yaml,
+            report,
+            repair_attempt_count,
+            repair_context_report,
+        ) = await self._repair_from_report_json(
             project_id=project_id,
             script_yaml=script_yaml,
             validation_report_json=validation_report_json,
@@ -300,6 +312,7 @@ class ScriptService:
                 if report.validation_report.accepted
                 else ValidationStatus.rejected.value
             ),
+            context_report=repair_context_report,
         )
 
     async def list_versions(self, project_id: str) -> ScriptVersionListResponse:
@@ -459,7 +472,7 @@ class ScriptService:
                     current_yaml,
                     current_report.validation_report.model_dump(mode="json"),
                     book_index,
-                )
+                ).prompt
             )
             current_yaml = self._dump_screenplay(screenplay)
             current_report = await self.validate_script(project_id, current_yaml)
@@ -469,18 +482,19 @@ class ScriptService:
         self,
         project_id: str,
         script_yaml: str,
-        validation_report_json: dict,
+        validation_report_json: dict[str, Any],
         book_index: BookIndex | None,
-    ) -> tuple[str, ScriptValidateResponse, int]:
+    ) -> tuple[str, ScriptValidateResponse, int, ContextPackingReport | None]:
         repair_attempt_count = 0
         current_yaml = script_yaml
         current_report_json = validation_report_json
         current_report: ScriptValidateResponse | None = None
+        context_report = None
         while repair_attempt_count < self.settings.script_repair_max_attempts:
             repair_attempt_count += 1
-            screenplay = await self.agent.repair_script(
-                self._repair_prompt(current_yaml, current_report_json, book_index)
-            )
+            packed_prompt = self._repair_prompt(current_yaml, current_report_json, book_index)
+            context_report = packed_prompt.report
+            screenplay = await self.agent.repair_script(packed_prompt.prompt)
             current_yaml = self._dump_screenplay(screenplay)
             current_report = await self.validate_script(project_id, current_yaml)
             if current_report.validation_report.accepted:
@@ -488,7 +502,7 @@ class ScriptService:
             current_report_json = current_report.validation_report.model_dump(mode="json")
         if current_report is None:
             current_report = await self.validate_script(project_id, current_yaml)
-        return current_yaml, current_report, repair_attempt_count
+        return current_yaml, current_report, repair_attempt_count, context_report
 
     def _dump_screenplay(self, screenplay: ScreenplayYaml) -> str:
         return yaml.safe_dump(
@@ -522,31 +536,12 @@ class ScriptService:
         project_title: str,
         book_index: BookIndex,
         chapters: list[dict],
-    ) -> str:
-        chapter_blocks = []
-        for chapter in chapters:
-            chapter_blocks.append(
-                "\n".join(
-                    [
-                        f"章节 ID：{chapter['id']}",
-                        f"章节标题：{chapter['title']}",
-                        "章节正文：",
-                        chapter["content"],
-                    ]
-                )
-            )
-        return "\n\n".join(
-            [
-                "请基于 book_index.json 和原文章节生成完整 script.yaml。",
-                f"项目 ID：{project_id}",
-                f"项目标题：{project_title}",
-                "必须使用输入中的 chapter_id 作为 source_refs.chapter_id。",
-                "每个 scene 必须包含 adaptation_notes。",
-                "book_index.json：",
-                book_index.model_dump_json(indent=2),
-                "原文章节：",
-                "\n\n---\n\n".join(chapter_blocks),
-            ]
+    ) -> PackedPrompt:
+        return self.context_prompts.build_script_generation_prompt(
+            project_id=project_id,
+            project_title=project_title,
+            book_index=book_index,
+            chapters=chapters,
         )
 
     def _edit_prompt(
@@ -555,33 +550,22 @@ class ScriptService:
         target_path: str | None,
         current_yaml: str,
         book_index: BookIndex | None,
-    ) -> str:
-        return "\n\n".join(
-            [
-                "请根据用户指令生成 YAML patch operations，不要直接重写全部剧本。",
-                f"用户指令：{instruction}",
-                f"目标路径：{target_path or '未指定'}",
-                "当前 script.yaml：",
-                current_yaml,
-                "book_index.json：",
-                book_index.model_dump_json(indent=2) if book_index else "未生成",
-            ]
+    ) -> PackedPrompt:
+        return self.context_prompts.build_yaml_edit_prompt(
+            instruction=instruction,
+            target_path=target_path,
+            current_yaml=current_yaml,
+            book_index=book_index,
         )
 
     def _repair_prompt(
         self,
         script_yaml: str,
-        validation_report_json: dict,
+        validation_report_json: dict[str, Any],
         book_index: BookIndex | None,
-    ) -> str:
-        return "\n\n".join(
-            [
-                "请根据 harness 错误修复以下剧本 YAML，只输出符合 ScreenplayYaml 模型的结果。",
-                "原始 script.yaml：",
-                script_yaml,
-                "harness errors：",
-                str(validation_report_json),
-                "book_index.json：",
-                book_index.model_dump_json(indent=2) if book_index else "未生成",
-            ]
+    ) -> PackedPrompt:
+        return self.context_prompts.build_repair_prompt(
+            script_yaml=script_yaml,
+            validation_report_json=validation_report_json,
+            book_index=book_index,
         )

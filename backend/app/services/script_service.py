@@ -19,7 +19,7 @@ from app.api.models.scripts import (
     ScriptVersionResponse,
 )
 from app.core.config import Settings
-from app.db.models import ScriptVersionRecord, ValidationStatus
+from app.db.models import ScriptVersionRecord, ValidationReportRecord, ValidationStatus
 from app.db.repositories.chapters import ChapterRepository
 from app.db.repositories.projects import ProjectRepository
 from app.db.repositories.script_versions import ScriptVersionRepository
@@ -99,6 +99,13 @@ class ScriptService:
                 script_yaml=script_yaml,
                 validation_report=report.validation_report,
                 accepted_version_id=project.current_script_version_id,
+                rejected_version_id=None,
+                repair_attempt_count=0,
+                validation_status=(
+                    ValidationStatus.accepted.value
+                    if report.validation_report.accepted
+                    else ValidationStatus.rejected.value
+                ),
             )
 
         book_index = self._require_book_index(project_id)
@@ -119,20 +126,52 @@ class ScriptService:
         screenplay = await self.agent.generate_script(prompt)
         script_yaml = self._dump_screenplay(screenplay)
         report = await self.validate_script(project_id, script_yaml)
+        script_yaml, report, repair_attempt_count = await self._repair_until_accepted(
+            project_id=project_id,
+            script_yaml=script_yaml,
+            report=report,
+            book_index=book_index,
+        )
         accepted_version_id = None
+        rejected_version_id = None
         if report.validation_report.accepted:
-            accepted_version_id = await self._save_accepted_version(
+            accepted_version_id = await self._save_script_version(
                 project_id=project_id,
                 script_yaml=script_yaml,
                 created_by="agent",
-                reason="生成初版剧本 YAML",
-                operation_count=0,
+                reason=(
+                    "生成初版剧本 YAML"
+                    if repair_attempt_count == 0
+                    else f"生成初版剧本 YAML，并自动修复 {repair_attempt_count} 次"
+                ),
+                operation_count=repair_attempt_count,
+                validation_status=ValidationStatus.accepted,
+                validation_report=report.validation_report,
+                make_current=True,
+            )
+        else:
+            rejected_version_id = await self._save_script_version(
+                project_id=project_id,
+                script_yaml=script_yaml,
+                created_by="agent",
+                reason=f"生成初版剧本 YAML 未通过 harness，已自动修复 {repair_attempt_count} 次",
+                operation_count=repair_attempt_count,
+                validation_status=ValidationStatus.rejected,
+                validation_report=report.validation_report,
+                make_current=False,
             )
         return ScriptGenerateResponse(
             project_id=project_id,
             script_yaml=script_yaml,
             validation_report=report.validation_report,
             accepted_version_id=accepted_version_id,
+            rejected_version_id=rejected_version_id,
+            repair_attempt_count=repair_attempt_count,
+            validation_status=(
+                ValidationStatus.accepted.value
+                if report.validation_report.accepted
+                else ValidationStatus.rejected.value
+            ),
         )
 
     async def edit_script(
@@ -155,14 +194,39 @@ class ScriptService:
         plan = await self.agent.plan_yaml_edit(prompt)
         patched_yaml = self._apply_operations(current_yaml, plan.operations)
         report = await self.validate_script(project_id, patched_yaml)
+        patched_yaml, report, repair_attempt_count = await self._repair_until_accepted(
+            project_id=project_id,
+            script_yaml=patched_yaml,
+            report=report,
+            book_index=book_index,
+        )
         accepted_version_id = None
+        rejected_version_id = None
         if report.validation_report.accepted:
-            accepted_version_id = await self._save_accepted_version(
+            accepted_version_id = await self._save_script_version(
                 project_id=project_id,
                 script_yaml=patched_yaml,
                 created_by="agent",
-                reason=instruction,
-                operation_count=len(plan.operations),
+                reason=(
+                    instruction
+                    if repair_attempt_count == 0
+                    else f"{instruction}（自动修复 {repair_attempt_count} 次）"
+                ),
+                operation_count=len(plan.operations) + repair_attempt_count,
+                validation_status=ValidationStatus.accepted,
+                validation_report=report.validation_report,
+                make_current=True,
+            )
+        else:
+            rejected_version_id = await self._save_script_version(
+                project_id=project_id,
+                script_yaml=patched_yaml,
+                created_by="agent",
+                reason=f"{instruction}（未通过 harness，已自动修复 {repair_attempt_count} 次）",
+                operation_count=len(plan.operations) + repair_attempt_count,
+                validation_status=ValidationStatus.rejected,
+                validation_report=report.validation_report,
+                make_current=False,
             )
         return ScriptEditResponse(
             project_id=project_id,
@@ -170,6 +234,13 @@ class ScriptService:
             script_yaml=patched_yaml,
             validation_report=report.validation_report,
             accepted_version_id=accepted_version_id,
+            rejected_version_id=rejected_version_id,
+            repair_attempt_count=repair_attempt_count,
+            validation_status=(
+                ValidationStatus.accepted.value
+                if report.validation_report.accepted
+                else ValidationStatus.rejected.value
+            ),
         )
 
     async def repair_script(
@@ -182,24 +253,51 @@ class ScriptService:
         if project is None:
             raise ScriptServiceProjectNotFoundError(project_id)
         book_index = self._load_book_index(project_id)
-        prompt = self._repair_prompt(script_yaml, validation_report_json, book_index)
-        screenplay = await self.agent.repair_script(prompt)
-        repaired_yaml = self._dump_screenplay(screenplay)
-        report = await self.validate_script(project_id, repaired_yaml)
+        repaired_yaml, report, repair_attempt_count = await self._repair_from_report_json(
+            project_id=project_id,
+            script_yaml=script_yaml,
+            validation_report_json=validation_report_json,
+            book_index=book_index,
+        )
         accepted_version_id = None
+        rejected_version_id = None
         if report.validation_report.accepted:
-            accepted_version_id = await self._save_accepted_version(
+            accepted_version_id = await self._save_script_version(
                 project_id=project_id,
                 script_yaml=repaired_yaml,
                 created_by="agent",
-                reason="根据 harness 错误修复剧本 YAML",
-                operation_count=1,
+                reason=f"根据 harness 错误修复剧本 YAML（自动修复 {repair_attempt_count} 次）",
+                operation_count=repair_attempt_count,
+                validation_status=ValidationStatus.accepted,
+                validation_report=report.validation_report,
+                make_current=True,
+            )
+        else:
+            rejected_version_id = await self._save_script_version(
+                project_id=project_id,
+                script_yaml=repaired_yaml,
+                created_by="agent",
+                reason=(
+                    "根据 harness 错误修复剧本 YAML 后仍未通过"
+                    f"（自动修复 {repair_attempt_count} 次）"
+                ),
+                operation_count=repair_attempt_count,
+                validation_status=ValidationStatus.rejected,
+                validation_report=report.validation_report,
+                make_current=False,
             )
         return ScriptGenerateResponse(
             project_id=project_id,
             script_yaml=repaired_yaml,
             validation_report=report.validation_report,
             accepted_version_id=accepted_version_id,
+            rejected_version_id=rejected_version_id,
+            repair_attempt_count=repair_attempt_count,
+            validation_status=(
+                ValidationStatus.accepted.value
+                if report.validation_report.accepted
+                else ValidationStatus.rejected.value
+            ),
         )
 
     async def list_versions(self, project_id: str) -> ScriptVersionListResponse:
@@ -280,21 +378,26 @@ class ScriptService:
             raise CurrentScriptNotFoundError(project_id)
         return self.store.read_text(path)
 
-    async def _save_accepted_version(
+    async def _save_script_version(
         self,
         project_id: str,
         script_yaml: str,
         created_by: str,
         reason: str,
         operation_count: int,
+        validation_status: ValidationStatus,
+        validation_report,
+        make_current: bool,
     ) -> str:
         project = await self.projects.get(project_id)
         if project is None:
             raise ScriptServiceProjectNotFoundError(project_id)
         version_id = f"script_v_{uuid4().hex[:12]}"
-        current_path = self.store.script_path(project_id)
         version_path = self.store.script_version_path(project_id, version_id)
-        self.store.write_text(current_path, script_yaml)
+        if make_current:
+            current_path = self.store.script_path(project_id)
+            self.store.write_text(current_path, script_yaml)
+            project.current_script_version_id = version_id
         self.store.write_text(version_path, script_yaml)
         version = ScriptVersionRecord(
             id=version_id,
@@ -303,13 +406,87 @@ class ScriptService:
             created_by=created_by,
             reason=reason,
             operation_count=operation_count,
-            validation_status=ValidationStatus.accepted.value,
+            validation_status=validation_status.value,
         )
         await self.versions.add(version)
-        project.current_script_version_id = version_id
+        await self._add_validation_report(
+            project_id=project_id,
+            script_version_id=version_id,
+            status=validation_status,
+            validation_report=validation_report,
+        )
         project.updated_at = datetime.now(UTC)
         await self.session.commit()
         return version_id
+
+    async def _add_validation_report(
+        self,
+        project_id: str,
+        script_version_id: str,
+        status: ValidationStatus,
+        validation_report,
+    ) -> None:
+        self.session.add(
+            ValidationReportRecord(
+                id=f"validation_{uuid4().hex[:12]}",
+                project_id=project_id,
+                script_version_id=script_version_id,
+                status=status.value,
+                report_json=validation_report.model_dump(mode="json"),
+            )
+        )
+        await self.session.flush()
+
+    async def _repair_until_accepted(
+        self,
+        project_id: str,
+        script_yaml: str,
+        report: ScriptValidateResponse,
+        book_index: BookIndex | None,
+    ) -> tuple[str, ScriptValidateResponse, int]:
+        repair_attempt_count = 0
+        current_yaml = script_yaml
+        current_report = report
+        while (
+            not current_report.validation_report.accepted
+            and repair_attempt_count < self.settings.script_repair_max_attempts
+        ):
+            repair_attempt_count += 1
+            screenplay = await self.agent.repair_script(
+                self._repair_prompt(
+                    current_yaml,
+                    current_report.validation_report.model_dump(mode="json"),
+                    book_index,
+                )
+            )
+            current_yaml = self._dump_screenplay(screenplay)
+            current_report = await self.validate_script(project_id, current_yaml)
+        return current_yaml, current_report, repair_attempt_count
+
+    async def _repair_from_report_json(
+        self,
+        project_id: str,
+        script_yaml: str,
+        validation_report_json: dict,
+        book_index: BookIndex | None,
+    ) -> tuple[str, ScriptValidateResponse, int]:
+        repair_attempt_count = 0
+        current_yaml = script_yaml
+        current_report_json = validation_report_json
+        current_report: ScriptValidateResponse | None = None
+        while repair_attempt_count < self.settings.script_repair_max_attempts:
+            repair_attempt_count += 1
+            screenplay = await self.agent.repair_script(
+                self._repair_prompt(current_yaml, current_report_json, book_index)
+            )
+            current_yaml = self._dump_screenplay(screenplay)
+            current_report = await self.validate_script(project_id, current_yaml)
+            if current_report.validation_report.accepted:
+                break
+            current_report_json = current_report.validation_report.model_dump(mode="json")
+        if current_report is None:
+            current_report = await self.validate_script(project_id, current_yaml)
+        return current_yaml, current_report, repair_attempt_count
 
     def _dump_screenplay(self, screenplay: ScreenplayYaml) -> str:
         return yaml.safe_dump(

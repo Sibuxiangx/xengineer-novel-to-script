@@ -256,7 +256,8 @@ async def get_chat_session_book_index(
     status_code=status.HTTP_200_OK,
     summary="List chat project screenplay versions",
     description=(
-        "Return accepted screenplay YAML versions for the project linked to a chat session."
+        "Return screenplay YAML versions and rejected drafts for the project linked to a "
+        "chat session."
     ),
     responses={
         status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},

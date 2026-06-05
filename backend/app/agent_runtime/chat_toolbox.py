@@ -76,8 +76,17 @@ class ScriptGeneratedToolResult(BaseModel):
         default=None,
         description="Accepted screenplay version ID, if harness accepted the YAML.",
     )
+    rejected_version_id: str | None = Field(
+        default=None,
+        description="Rejected draft version ID, if harness rejected the YAML after repairs.",
+    )
     accepted: bool = Field(..., description="Whether the generated YAML passed harness.")
     severity: str = Field(..., description="Harness validation severity.")
+    repair_attempt_count: int = Field(..., description="Automatic repair attempts performed.")
+    validation_status: Literal["accepted", "rejected"] = Field(
+        ...,
+        description="Final persisted validation status.",
+    )
 
 
 class ScriptEditedToolResult(BaseModel):
@@ -85,8 +94,17 @@ class ScriptEditedToolResult(BaseModel):
         default=None,
         description="Accepted screenplay version ID, if harness accepted the edit.",
     )
+    rejected_version_id: str | None = Field(
+        default=None,
+        description="Rejected draft version ID, if harness rejected the edit after repairs.",
+    )
     operation_count: int = Field(..., description="Applied YAML patch operation count.")
     accepted: bool = Field(..., description="Whether the edited YAML passed harness.")
+    repair_attempt_count: int = Field(..., description="Automatic repair attempts performed.")
+    validation_status: Literal["accepted", "rejected"] = Field(
+        ...,
+        description="Final persisted validation status.",
+    )
 
 
 class ChatToolbox:
@@ -124,6 +142,11 @@ class ChatToolbox:
         self.chapter_split_rule: ChapterSplitRule | None = None
         self.chapter_split_preview: ChapterSplitInferencePreview | None = None
         self.pending_confirmation_id: str | None = None
+        self.completed_with_errors = False
+        self.last_rejected_version_id: str | None = None
+        self.last_repair_attempt_count = 0
+        self.last_validation_report: dict[str, Any] | None = None
+        self.last_validation_error_message: str | None = None
 
     async def propose_project_title(self) -> ProjectTitleSuggestion:
         tool = await self._start_tool(
@@ -387,10 +410,21 @@ class ChatToolbox:
             ).generate_script(project_id, force_regenerate=force_regenerate)
             result = ScriptGeneratedToolResult(
                 accepted_version_id=script.accepted_version_id,
+                rejected_version_id=script.rejected_version_id,
                 accepted=script.validation_report.accepted,
                 severity=script.validation_report.severity,
+                repair_attempt_count=script.repair_attempt_count,
+                validation_status=script.validation_status,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
+            self._record_validation_outcome(
+                project_id=project_id,
+                validation_status=script.validation_status,
+                accepted_version_id=script.accepted_version_id,
+                rejected_version_id=script.rejected_version_id,
+                validation_report=script.validation_report.model_dump(mode="json"),
+                repair_attempt_count=script.repair_attempt_count,
+            )
             self.events.append(
                 format_sse_event(
                     "asset.updated",
@@ -398,6 +432,9 @@ class ChatToolbox:
                         "asset": "script_yaml",
                         "project_id": project_id,
                         "accepted_version_id": script.accepted_version_id,
+                        "rejected_version_id": script.rejected_version_id,
+                        "validation_status": script.validation_status,
+                        "repair_attempt_count": script.repair_attempt_count,
                         "validation_report": script.validation_report.model_dump(mode="json"),
                     },
                 )
@@ -424,10 +461,21 @@ class ChatToolbox:
             )
             result = ScriptEditedToolResult(
                 accepted_version_id=edit.accepted_version_id,
+                rejected_version_id=edit.rejected_version_id,
                 operation_count=len(edit.operations),
                 accepted=edit.validation_report.accepted,
+                repair_attempt_count=edit.repair_attempt_count,
+                validation_status=edit.validation_status,
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
+            self._record_validation_outcome(
+                project_id=project_id,
+                validation_status=edit.validation_status,
+                accepted_version_id=edit.accepted_version_id,
+                rejected_version_id=edit.rejected_version_id,
+                validation_report=edit.validation_report.model_dump(mode="json"),
+                repair_attempt_count=edit.repair_attempt_count,
+            )
             self.events.append(
                 format_sse_event(
                     "asset.updated",
@@ -435,6 +483,9 @@ class ChatToolbox:
                         "asset": "script_yaml",
                         "project_id": project_id,
                         "accepted_version_id": edit.accepted_version_id,
+                        "rejected_version_id": edit.rejected_version_id,
+                        "validation_status": edit.validation_status,
+                        "repair_attempt_count": edit.repair_attempt_count,
                         "validation_report": edit.validation_report.model_dump(mode="json"),
                     },
                 )
@@ -466,6 +517,38 @@ class ChatToolbox:
         await self.recorder.fail_tool(tool, error_message)
         self.events.append(
             format_sse_event("tool.call.failed", self._tool_response(tool).model_dump())
+        )
+
+    def _record_validation_outcome(
+        self,
+        project_id: str,
+        validation_status: Literal["accepted", "rejected"],
+        accepted_version_id: str | None,
+        rejected_version_id: str | None,
+        validation_report: dict[str, Any],
+        repair_attempt_count: int,
+    ) -> None:
+        if validation_status == "rejected":
+            self.completed_with_errors = True
+            self.last_rejected_version_id = rejected_version_id
+            self.last_repair_attempt_count = repair_attempt_count
+            self.last_validation_report = validation_report
+            self.last_validation_error_message = (
+                f"剧本 YAML 未通过 harness，已自动修复 {repair_attempt_count} 次，"
+                "当前结果已保存为 rejected draft。"
+            )
+        self.events.append(
+            format_sse_event(
+                "validation.completed",
+                {
+                    "project_id": project_id,
+                    "validation_status": validation_status,
+                    "accepted_version_id": accepted_version_id,
+                    "rejected_version_id": rejected_version_id,
+                    "repair_attempt_count": repair_attempt_count,
+                    "validation_report": validation_report,
+                },
+            )
         )
 
     async def _create_chapter_split_confirmation(

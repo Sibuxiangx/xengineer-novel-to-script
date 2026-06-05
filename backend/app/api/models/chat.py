@@ -85,7 +85,7 @@ class ChatSessionDetailResponse(BaseModel):
     )
     latest_versions: list[ScriptVersionResponse] = Field(
         default_factory=list,
-        description="Latest accepted screenplay versions for the linked project.",
+        description="Latest screenplay versions for the linked project, including rejected drafts.",
     )
 
 

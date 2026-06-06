@@ -61,14 +61,26 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 120px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sw-rail-scroll {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   margin-right: -8px;
   padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sw-rail-scroll > .ant-empty {
+  margin: auto 0;
+}
+
+.sw-rail-scroll > .ant-conversations {
+  width: 100%;
 }
 
 .sw-rail--collapsed .sw-rail-scroll {
@@ -84,6 +96,7 @@
 
 .sw-rail-settings {
   flex: 0 0 auto;
+  margin-top: auto;
 }
 
 .sw-rail--collapsed .sw-rail-settings {

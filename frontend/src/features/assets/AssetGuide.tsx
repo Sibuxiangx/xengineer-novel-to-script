@@ -29,7 +29,7 @@ const STEPS = [
   },
   {
     title: '剧本草稿',
-    description: '生成可继续打磨的结构化短剧剧本',
+    description: '生成可继续打磨的结构化剧本',
     icon: <CodeOutlined aria-hidden />,
     statesActive: ['generating'],
   },

@@ -94,7 +94,7 @@ type ScriptVisualEditorProps = {
 }
 
 const SCRIPT_FORMAT_OPTIONS = [
-  { label: '短剧', value: 'short_drama' },
+  { label: '结构化剧本', value: 'short_drama' },
   { label: '电影', value: 'film' },
   { label: '剧集单集', value: 'series_episode' },
   { label: '舞台剧', value: 'stage_play' },

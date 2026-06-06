@@ -1,4 +1,6 @@
 .sw-rail {
+  --sw-rail-bottom-safe-space: 28px;
+
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -118,6 +120,7 @@
 .sw-rail-tabs .ant-tabs-tabpane {
   overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: calc(var(--sw-rail-bottom-safe-space) + env(safe-area-inset-bottom, 0px));
 }
 
 .sw-rail--collapsed .sw-rail-scroll {

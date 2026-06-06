@@ -23,6 +23,14 @@
   min-width: 0;
 }
 
+.sw-brand-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  filter: drop-shadow(var(--sw-brand-avatar-shadow));
+}
+
 .sw-rail--collapsed .sw-rail-brand {
   justify-content: center;
   min-height: 32px;

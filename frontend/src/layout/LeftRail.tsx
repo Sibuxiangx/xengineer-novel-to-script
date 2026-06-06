@@ -1,6 +1,5 @@
-import { Avatar, Button, Spin, Tooltip, Typography } from 'antd'
+import { Button, Spin, Tooltip, Typography } from 'antd'
 import {
-  ApartmentOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PlusOutlined,
@@ -37,13 +36,18 @@ export function LeftRail({
       <header className="sw-rail-brand">
         {!collapsed ? (
           <>
-            <Avatar size={42} icon={<ApartmentOutlined aria-hidden />} className="sw-brand-avatar" />
+            <img
+              src="/brand/scriptweaver-icon.png"
+              alt=""
+              aria-hidden="true"
+              className="sw-brand-icon"
+            />
             <div className="sw-rail-brand-meta">
               <Title level={4} className="sw-rail-title">
                 ScriptWeaver
               </Title>
               <Text type="secondary" className="sw-rail-subtitle">
-                把小说改编成可拍摄短剧
+                把小说转换为结构化剧本
               </Text>
             </div>
           </>

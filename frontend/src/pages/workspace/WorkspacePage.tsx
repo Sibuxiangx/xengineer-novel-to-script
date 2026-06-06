@@ -992,7 +992,7 @@ export default function WorkspacePage() {
             <div className="sw-chat-empty" role="region" aria-label="空对话提示">
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="先上传小说 TXT，或直接描述你想改编成什么风格。"
+                description="先上传小说 TXT，或直接描述你想生成怎样的结构化剧本。"
               />
             </div>
           ) : (

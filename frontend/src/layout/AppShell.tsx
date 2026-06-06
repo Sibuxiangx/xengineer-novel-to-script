@@ -10,9 +10,9 @@ import {
 import clsx from 'clsx'
 import './AppShell.css'
 
-const INSPECTOR_MIN_WIDTH = 320
-const INSPECTOR_MAX_WIDTH = 720
-const MAIN_MIN_WIDTH = 560
+const INSPECTOR_MIN_WIDTH = 360
+const INSPECTOR_MAX_WIDTH = 560
+const MAIN_MIN_WIDTH = 720
 const LEFT_RAIL_EXPANDED_WIDTH = 304
 const LEFT_RAIL_COLLAPSED_WIDTH = 72
 
@@ -23,6 +23,7 @@ type AppShellProps = {
   children: ReactNode
   leftRailCollapsed?: boolean
   rightInspectorWidth: number
+  rightPaneLabel?: string
   onRightInspectorWidthChange: (width: number) => void
 }
 
@@ -48,6 +49,7 @@ export function AppShell({
   children,
   leftRailCollapsed,
   rightInspectorWidth,
+  rightPaneLabel = 'AI 对话侧栏',
   onRightInspectorWidthChange,
 }: AppShellProps) {
   const [isResizingInspector, setIsResizingInspector] = useState(false)
@@ -137,7 +139,7 @@ export function AppShell({
   return (
     <>
       <a className="sw-skip-link" href="#sw-main-content">
-        跳到主对话区
+        跳到剧本工作区
       </a>
       <div
         className={clsx(
@@ -156,17 +158,17 @@ export function AppShell({
             id="sw-main-content"
             className="sw-content"
             tabIndex={-1}
-            aria-label="Agent 对话主区域"
+            aria-label="剧本工作主区域"
           >
             {children}
           </main>
         </div>
-        <aside className="sw-inspector" aria-label="项目资产巡视器">
+        <aside className="sw-inspector" aria-label={rightPaneLabel}>
           <div
             className="sw-inspector-resizer"
             role="separator"
             aria-orientation="vertical"
-            aria-label="拖动调整项目资产面板宽度"
+            aria-label="拖动调整 AI 对话侧栏宽度"
             tabIndex={0}
             onPointerDown={handleInspectorResizeStart}
             onKeyDown={handleInspectorResizeKeyDown}

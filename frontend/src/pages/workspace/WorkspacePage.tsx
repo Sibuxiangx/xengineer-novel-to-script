@@ -5,7 +5,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { AppShell } from '../../layout/AppShell'
 import { WorkspaceHeader } from '../../layout/WorkspaceHeader'
 import { LeftRail } from '../../layout/LeftRail'
-import { RightInspector } from '../../layout/RightInspector'
 import { WorkspaceSettingsModal } from '../../layout/WorkspaceSettingsModal'
 import { ConversationsPanel } from '../../features/sessions/ConversationsPanel'
 import {
@@ -243,7 +242,7 @@ export default function WorkspacePage() {
       await runStream(sessionId, `/chat/sessions/${sessionId}/runs/stream`, payload)
       setSourceText('')
       await refreshSessionAssets(queryClient, sessionId)
-      setActiveAssetTab('chapters')
+      setActiveAssetTab('yaml')
     } catch (error) {
       if ((error as DOMException)?.name === 'AbortError') return
       setErrorMessage(getErrorMessage(error))
@@ -437,33 +436,39 @@ export default function WorkspacePage() {
       if (sessionId !== activeSessionId) return
       const asset = payload.asset
       let nextTab: AssetTab | null = null
+      let highlightTab: AssetTab | null = null
       let label = '项目资产'
       void queryClient.invalidateQueries({
         queryKey: sessionDetailKey(sessionId),
       })
       if (asset === 'chapters') {
         void queryClient.invalidateQueries({ queryKey: ['chapters', sessionId] })
-        nextTab = 'chapters'
+        highlightTab = 'chapters'
         label = '章节'
       } else if (asset === 'book_index') {
         void queryClient.invalidateQueries({ queryKey: ['book-index', sessionId] })
-        nextTab = 'index'
+        highlightTab = 'index'
         label = '剧情索引'
       } else if (asset === 'script_yaml') {
         void queryClient.invalidateQueries({
           queryKey: ['script-versions', sessionId],
         })
         nextTab = payload.validation_status === 'accepted' ? 'yaml' : 'validation'
+        highlightTab = nextTab
         label = payload.validation_status === 'accepted' ? '剧本' : '校验报告'
       } else if (asset === 'project') {
         void queryClient.invalidateQueries({ queryKey: sessionsKey })
       }
+      if (highlightTab) {
+        setAssetHighlights((prev) => ({ ...prev, [highlightTab]: true }))
+      }
       if (nextTab) {
-        setAssetHighlights((prev) => ({ ...prev, [nextTab]: true }))
         setActiveAssetTab(nextTab)
+      }
+      if (highlightTab) {
         notification.success({
           message: `${label}已更新`,
-          description: '右侧项目资产已刷新。',
+          description: '中间剧本工作区已刷新。',
           placement: 'topRight',
           duration: 2.5,
         })
@@ -618,25 +623,47 @@ export default function WorkspacePage() {
           />
         </LeftRail>
       }
+      rightPaneLabel="AI 对话侧栏"
       rightInspector={
-        <RightInspector projectId={projectId}>
-          {hasProject ? (
-            <AssetTabs
-              activeTab={activeAssetTab}
-              onTabChange={handleSelectAssetTab}
-              panels={panels}
-              highlightedTabs={assetHighlights}
-            />
+        <section className="sw-chat-panel" aria-label="AI 对话与修改指令">
+          <header className="sw-chat-panel-head">
+            <div>
+              <div className="sw-chat-panel-title">AI 对话</div>
+              <div className="sw-chat-panel-subtitle">
+                用自然语言继续调整剧本，执行细节默认收起。
+              </div>
+            </div>
+          </header>
+          {showEmptyState ? (
+            <div className="sw-chat-empty" role="region" aria-label="空对话提示">
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="先上传小说 TXT，或直接描述你想改编成什么风格。"
+              />
+            </div>
           ) : (
-            <AssetGuide projectStatus={projectStatus} />
+            <ChatTimeline items={bubbleItems} />
           )}
-        </RightInspector>
+          <ChatComposer
+            message={message}
+            onMessageChange={setMessage}
+            onSubmit={(value) => void handleSend(value)}
+            isStreaming={isStreaming}
+            disabled={false}
+            attachmentOpen={attachmentOpen}
+            onToggleAttachment={() => setAttachmentOpen(!attachmentOpen)}
+            sourceText={sourceText}
+            sourceFileName={sourceFileName}
+            onSourceTextChange={handleSourceTextChange}
+            onSourceClear={handleSourceClear}
+          />
+        </section>
       }
       leftRailCollapsed={leftRailCollapsed}
       rightInspectorWidth={rightInspectorWidth}
       onRightInspectorWidthChange={setRightInspectorWidth}
     >
-      <div className="sw-workspace-main">
+      <div className="sw-workbench-main">
         {errorMessage ? (
           <Alert
             type="error"
@@ -647,33 +674,20 @@ export default function WorkspacePage() {
             className="sw-workspace-error"
           />
         ) : null}
-        {showEmptyState ? (
-          <div className="sw-workspace-empty" role="region" aria-label="空状态欢迎区">
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <span>
-                  上传一段小说 TXT，或者直接发一条消息，让 Agent 开始改编为短剧。
-                </span>
-              }
+        {hasProject ? (
+          <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">
+            <AssetTabs
+              activeTab={activeAssetTab}
+              onTabChange={handleSelectAssetTab}
+              panels={panels}
+              highlightedTabs={assetHighlights}
             />
-          </div>
+          </section>
         ) : (
-          <ChatTimeline items={bubbleItems} />
+          <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">
+            <AssetGuide projectStatus={projectStatus} />
+          </section>
         )}
-        <ChatComposer
-          message={message}
-          onMessageChange={setMessage}
-          onSubmit={(value) => void handleSend(value)}
-          isStreaming={isStreaming}
-          disabled={false}
-          attachmentOpen={attachmentOpen}
-          onToggleAttachment={() => setAttachmentOpen(!attachmentOpen)}
-          sourceText={sourceText}
-          sourceFileName={sourceFileName}
-          onSourceTextChange={handleSourceTextChange}
-          onSourceClear={handleSourceClear}
-        />
       </div>
     </AppShell>
   )

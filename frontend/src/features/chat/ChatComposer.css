@@ -52,6 +52,19 @@
   font-size: 12px;
 }
 
+.sw-chat-panel .sw-composer {
+  padding: 12px 14px 14px;
+}
+
+.sw-chat-panel .sw-composer .ant-sender,
+.sw-chat-panel .sw-source-chip {
+  max-width: none;
+}
+
+.sw-chat-panel .sw-source-chip-tag {
+  max-width: 180px;
+}
+
 @media (max-width: 900px) {
   .sw-composer {
     padding: 12px 14px 16px;

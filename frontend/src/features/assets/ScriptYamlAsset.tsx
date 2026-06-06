@@ -26,7 +26,7 @@ import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
 import type { ScriptVersion, ValidationReport } from '../../types'
 import './ScriptYamlAsset.css'
 
-const { Text } = Typography
+const { Text, Title, Paragraph } = Typography
 
 type ScriptYamlAssetProps = {
   yaml: string
@@ -112,7 +112,23 @@ export function ScriptYamlAsset({
     return <Skeleton active paragraph={{ rows: 8 }} />
   }
   if (!yaml) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成剧本草稿" />
+    return (
+      <div className="sw-yaml-empty">
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <Space orientation="vertical" size={4}>
+              <Title level={4} className="sw-yaml-empty-title">
+                剧本还没有生成
+              </Title>
+              <Paragraph type="secondary" className="sw-yaml-empty-copy">
+                在右侧对话里上传小说 TXT，并确认分章后，生成的剧本会出现在这里。
+              </Paragraph>
+            </Space>
+          }
+        />
+      </div>
+    )
   }
 
   function copyYaml() {

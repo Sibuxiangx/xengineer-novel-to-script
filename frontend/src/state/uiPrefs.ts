@@ -5,14 +5,6 @@ export type AssetTab = 'chapters' | 'index' | 'yaml' | 'validation' | 'versions'
 export type ThemeMode = 'light' | 'dark'
 
 const legacyValidationTabKey = ['har', 'ness'].join('')
-const assetTabs = new Set<AssetTab>(['chapters', 'index', 'yaml', 'validation', 'versions'])
-
-function normalizeAssetTab(value: unknown): AssetTab {
-  if (value === legacyValidationTabKey) return 'validation'
-  return typeof value === 'string' && assetTabs.has(value as AssetTab)
-    ? (value as AssetTab)
-    : 'chapters'
-}
 
 type UiPrefsState = {
   activeAssetTab: AssetTab
@@ -30,9 +22,9 @@ type UiPrefsState = {
 export const useUiPrefs = create<UiPrefsState>()(
   persist(
     (set) => ({
-      activeAssetTab: 'chapters',
+      activeAssetTab: 'yaml',
       leftRailCollapsed: false,
-      rightInspectorWidth: 408,
+      rightInspectorWidth: 432,
       attachmentOpen: false,
       themeMode: 'light',
       setActiveAssetTab: (tab) => set({ activeAssetTab: tab }),
@@ -43,14 +35,15 @@ export const useUiPrefs = create<UiPrefsState>()(
     }),
     {
       name: 'scriptweaver-ui-prefs',
-      version: 5,
+      version: 6,
       migrate: (persisted) => ({
         ...(persisted && typeof persisted === 'object' ? persisted : {}),
-        activeAssetTab: normalizeAssetTab(
-          persisted && typeof persisted === 'object'
-            ? (persisted as Partial<UiPrefsState>).activeAssetTab
-            : undefined,
-        ),
+        activeAssetTab:
+          persisted &&
+          typeof persisted === 'object' &&
+          (persisted as Partial<UiPrefsState>).activeAssetTab === legacyValidationTabKey
+            ? 'validation'
+            : 'yaml',
         attachmentOpen: false,
         themeMode:
           persisted &&
@@ -63,10 +56,10 @@ export const useUiPrefs = create<UiPrefsState>()(
           typeof persisted === 'object' &&
           typeof (persisted as Partial<UiPrefsState>).rightInspectorWidth === 'number'
             ? Math.min(
-                720,
-                Math.max(320, (persisted as Partial<UiPrefsState>).rightInspectorWidth ?? 408),
+                560,
+                Math.max(360, (persisted as Partial<UiPrefsState>).rightInspectorWidth ?? 432),
               )
-            : 408,
+            : 432,
       }),
     },
   ),

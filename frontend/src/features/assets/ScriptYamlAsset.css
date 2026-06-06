@@ -24,6 +24,25 @@
   background: var(--sw-color-surface);
 }
 
+.sw-yaml-empty {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 420px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.sw-yaml-empty-title {
+  margin: 0 !important;
+}
+
+.sw-yaml-empty-copy {
+  max-width: 360px;
+  margin: 0 !important;
+  text-align: center;
+}
+
 .sw-monaco-error-line {
   background-color: color-mix(in srgb, var(--sw-color-danger) 16%, transparent);
 }

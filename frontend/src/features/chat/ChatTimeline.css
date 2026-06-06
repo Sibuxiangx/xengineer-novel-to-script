@@ -75,6 +75,56 @@
   box-shadow: 0 6px 18px rgb(15 23 42 / 0.08);
 }
 
+.sw-chat-panel .sw-chat-area {
+  padding: 14px 14px 4px;
+}
+
+.sw-chat-panel .sw-bubble-list .ant-bubble-content {
+  max-width: 100%;
+}
+
+.sw-chat-panel .sw-tool-card,
+.sw-chat-panel .sw-confirm-card,
+.sw-chat-panel .sw-validation-card,
+.sw-chat-panel .sw-progress-card {
+  width: 100%;
+  box-shadow: none;
+}
+
+.sw-chat-panel .sw-tool-name-raw {
+  display: none;
+}
+
+.sw-tool-details {
+  border-top: 1px solid var(--sw-color-border);
+  padding-top: 8px;
+}
+
+.sw-tool-details summary {
+  cursor: pointer;
+  color: var(--sw-color-text-muted);
+  font-size: 12px;
+  list-style: none;
+}
+
+.sw-tool-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.sw-tool-details summary::after {
+  content: "展开";
+  margin-left: 8px;
+  color: var(--sw-color-primary);
+}
+
+.sw-tool-details[open] summary::after {
+  content: "收起";
+}
+
+.sw-tool-details-body {
+  margin-top: 8px;
+}
+
 .sw-progress-card {
   background: linear-gradient(
     180deg,

@@ -1,9 +1,9 @@
 .sw-shell {
   --sw-left-rail-width: 304px;
-  --sw-right-inspector-width: 408px;
+  --sw-right-inspector-width: 432px;
 
   display: grid;
-  grid-template-columns: var(--sw-left-rail-width) minmax(520px, 1fr) var(--sw-right-inspector-width);
+  grid-template-columns: var(--sw-left-rail-width) minmax(0, 1fr) var(--sw-right-inspector-width);
   height: 100vh;
   min-height: 100vh;
   background: var(--sw-color-layout);
@@ -35,8 +35,8 @@
 }
 
 .sw-content {
-  display: grid;
-  grid-template-rows: 1fr auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
   overflow: hidden;

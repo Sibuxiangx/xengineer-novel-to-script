@@ -28,6 +28,7 @@ from app.api.models.chat import (
     ChatSessionResponse,
     ChatTimelineItemResponse,
     ChatToolCallResponse,
+    ModelUsageResponse,
 )
 from app.api.models.projects import (
     ChapterListResponse,
@@ -55,6 +56,7 @@ from app.services.book_index_service import (
     BookIndexService,
     BookIndexServiceProjectNotFoundError,
 )
+from app.services.context_packer import ContextPackingReport
 from app.services.project_service import ProjectNotFoundError, ProjectService
 from app.services.script_service import (
     ScriptService,
@@ -163,6 +165,7 @@ class ChatAgentService:
                 confirmations=confirmations,
             ),
             latest_versions=latest_versions[-5:],
+            model_usage=self._model_usage_responses(tool_calls),
         )
 
     async def list_session_chapters(self, session_id: str) -> ChapterListResponse:
@@ -748,6 +751,45 @@ class ChatAgentService:
                 append_confirmation(confirmation, None)
 
         return items
+
+    def _model_usage_responses(
+        self,
+        tool_calls: list[ChatToolCallRecord],
+    ) -> list[ModelUsageResponse]:
+        usage: list[ModelUsageResponse] = []
+        for tool in tool_calls:
+            if tool.status != "completed" or not isinstance(tool.output_json, dict):
+                continue
+            raw_context_report = tool.output_json.get("context_report")
+            if not isinstance(raw_context_report, dict):
+                continue
+            raw_project_id = tool.input_json.get("project_id") if tool.input_json else None
+            if not isinstance(raw_project_id, str):
+                continue
+            try:
+                context_report = ContextPackingReport.model_validate(raw_context_report)
+            except Exception:
+                continue
+            usage.append(
+                ModelUsageResponse(
+                    id=f"usage:{tool.id}",
+                    project_id=raw_project_id,
+                    task=tool.name,
+                    provider="deepseek",
+                    model=self._model_name_for_task(tool.name),
+                    estimated_input_tokens=context_report.estimated_tokens,
+                    context_budget_tokens=context_report.budget_tokens,
+                    included_block_ids=context_report.included_block_ids,
+                    omitted_block_ids=context_report.omitted_block_ids,
+                    created_at=tool.updated_at,
+                )
+            )
+        return usage
+
+    def _model_name_for_task(self, task: str) -> str:
+        if task in {"build_book_index", "generate_script_yaml"}:
+            return self.settings.deepseek_fast_model
+        return self.settings.deepseek_model
 
     @staticmethod
     def _confirmation_id_from_message(message: ChatMessageRecord | None) -> str | None:

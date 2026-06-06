@@ -110,7 +110,7 @@ SSE 事件类型：
 - 如果短篇文本没有分章标题，会保存为单章 `全文`，用户后续仍可手动编辑。
 - 对于超长 TXT，Chat Agent 会在内部执行分章推导：本地抽取 head / middle / tail 片段，LLM 生成标题行规则，本地切分全文，LLM 检查统计与疑似漏切标题，必要时请求问题上下文并重写规则。
 - Agent 请求的上下文会被后端按预算裁剪，避免把整本书或大段文本重复发送给模型。
-- `book_index.json`、剧本生成、YAML 编辑和 repair 都会经过 `ContextPromptBuilder` 与 `ContextPacker`。响应和 SSE 中的 `context_report` 会展示有效预算、估算 token、包含块和省略块。
+- `book_index.json`、剧本生成、YAML 编辑和 repair 都会经过 `ContextPromptBuilder` 与 `ContextPacker`。后端使用本地 DeepSeek V4 tokenizer 估算 token，响应、详情接口和 SSE 中的 `context_report` / `model.usage.estimated` 会展示有效预算、估算 token、包含块和省略块。
 
 AI 能力说明：
 
@@ -196,6 +196,7 @@ pnpm build
 - python-dotenv：本地环境变量管理。
 - PyYAML：后续 YAML 解析、校验与导出。
 - socksio：支持本地 SOCKS 代理环境下的 DeepSeek HTTP 调用。
+- tokenizers：读取项目内置 DeepSeek V4 tokenizer.json，进行本地 token 估算。
 
 当前后端开发依赖：
 

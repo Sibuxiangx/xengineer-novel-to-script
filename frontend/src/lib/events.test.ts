@@ -106,6 +106,8 @@ describe('parseModelUsage / parseAssetUpdated / parseConfirmation', () => {
   it('parses model usage and includes string array fields', () => {
     const usage = parseModelUsage(
       makeEvent('model.usage.estimated', {
+        id: 'usage:t1',
+        tool_call_id: 't1',
         project_id: 'p',
         task: 'generate_yaml',
         provider: 'openai',
@@ -116,6 +118,8 @@ describe('parseModelUsage / parseAssetUpdated / parseConfirmation', () => {
         omitted_block_ids: ['c'],
       }),
     )
+    expect(usage?.id).toBe('usage:t1')
+    expect(usage?.tool_call_id).toBe('t1')
     expect(usage?.included_block_ids).toEqual(['a', 'b'])
     expect(usage?.omitted_block_ids).toEqual(['c'])
   })

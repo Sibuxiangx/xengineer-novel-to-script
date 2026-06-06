@@ -436,6 +436,9 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             detail = client.get(f"/chat/sessions/{session_id}").json()
             assert detail["session"]["pending_confirmation_count"] == 0
             assert detail["latest_versions"]
+            assert len(detail["model_usage"]) >= 2
+            assert detail["model_usage"][-1]["id"].startswith("usage:tool_")
+            assert detail["model_usage"][-1]["estimated_input_tokens"] > 0
             assert detail["messages"][-1]["content"].startswith("分章已确认")
 
             chapters_response = client.get(f"/chat/sessions/{session_id}/assets/chapters")

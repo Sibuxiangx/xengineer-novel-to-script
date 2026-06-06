@@ -101,6 +101,7 @@ export type ChatSessionDetail = {
   tool_calls: ToolCallEvent[]
   timeline: ChatTimelineItem[]
   latest_versions: ScriptVersion[]
+  model_usage: ModelUsage[]
 }
 
 export type ChatTimelineItem = {
@@ -210,6 +211,20 @@ export type ContextPackingReport = {
   omitted_block_ids: string[]
   estimated_tokens: number
   budget_tokens: number
+}
+
+export type ModelUsage = {
+  id?: string
+  tool_call_id?: string
+  project_id: string
+  task: string
+  provider: string
+  model: string
+  estimated_input_tokens: number
+  context_budget_tokens: number
+  included_block_ids: string[]
+  omitted_block_ids: string[]
+  created_at?: string
 }
 
 export type RunStatus =

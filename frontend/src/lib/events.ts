@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ContextPackingReport,
   JsonRecord,
+  ModelUsage,
   RunStatus,
   SseEvent,
   ToolCallDelta,
@@ -47,16 +48,7 @@ export type ValidationCompletedPayload = {
   context_report: ContextPackingReport | null
 }
 
-export type ModelUsagePayload = {
-  project_id: string
-  task: string
-  provider: string
-  model: string
-  estimated_input_tokens: number
-  context_budget_tokens: number
-  included_block_ids: string[]
-  omitted_block_ids: string[]
-}
+export type ModelUsagePayload = ModelUsage
 
 export type AssetUpdatedPayload = {
   asset: 'project' | 'chapters' | 'book_index' | 'script_yaml' | string
@@ -263,6 +255,8 @@ export function parseModelUsage(event: SseEvent): ModelUsagePayload | null {
     return null
   }
   return {
+    id: asString(data.id) || undefined,
+    tool_call_id: asString(data.tool_call_id) || undefined,
     project_id: data.project_id,
     task: asString(data.task),
     provider: asString(data.provider),
@@ -271,6 +265,7 @@ export function parseModelUsage(event: SseEvent): ModelUsagePayload | null {
     context_budget_tokens: asNumber(data.context_budget_tokens),
     included_block_ids: asStringArray(data.included_block_ids),
     omitted_block_ids: asStringArray(data.omitted_block_ids),
+    created_at: asString(data.created_at) || undefined,
   }
 }
 

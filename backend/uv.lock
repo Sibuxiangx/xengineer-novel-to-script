@@ -3675,6 +3675,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "socksio" },
     { name = "sqlalchemy" },
+    { name = "tokenizers" },
 ]
 
 [package.dev-dependencies]
@@ -3697,6 +3698,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "socksio", specifier = ">=1.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.36" },
+    { name = "tokenizers", specifier = ">=0.23.1" },
 ]
 
 [package.metadata.requires-dev]

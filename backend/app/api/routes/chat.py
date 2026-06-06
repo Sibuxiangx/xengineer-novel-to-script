@@ -21,7 +21,12 @@ from app.api.models.chat import (
 )
 from app.api.models.common import ApiErrorResponse
 from app.api.models.projects import ChapterListResponse
-from app.api.models.scripts import ScriptVersionDetailResponse, ScriptVersionListResponse
+from app.api.models.scripts import (
+    ScriptUserEditRequest,
+    ScriptUserEditResponse,
+    ScriptVersionDetailResponse,
+    ScriptVersionListResponse,
+)
 from app.core.config import Settings, get_settings
 from app.db.session import get_db_session
 from app.services.chat_agent_service import (
@@ -351,4 +356,39 @@ async def get_chat_session_script_version(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "script_version_not_found", "detail": "Script version not found."},
+        ) from exc
+
+
+@router.put(
+    "/sessions/{session_id}/assets/scripts/yaml",
+    response_model=ScriptUserEditResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Save user-edited screenplay YAML for a chat session",
+    description=(
+        "Persist a user-authored screenplay YAML edit. The YAML is validated; if it passes "
+        "validation it becomes the new accepted current version, otherwise it is stored as a "
+        "rejected draft for follow-up repair."
+    ),
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ApiErrorResponse},
+    },
+)
+async def save_chat_session_script_yaml(
+    session_id: Annotated[str, Path(description="Stable chat session identifier.")],
+    request: ScriptUserEditRequest,
+    service: Annotated[ChatAgentService, Depends(get_chat_agent_service)],
+) -> ScriptUserEditResponse:
+    try:
+        return await service.save_session_script_yaml(
+            session_id,
+            request.script_yaml,
+            request.reason,
+        )
+    except ChatSessionNotFoundError as exc:
+        raise _session_not_found(exc) from exc
+    except ChatSessionProjectRequiredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "chat_project_required", "detail": "Chat session has no project."},
         ) from exc

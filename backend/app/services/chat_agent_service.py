@@ -32,7 +32,11 @@ from app.api.models.chat import (
 from app.api.models.projects import (
     ChapterListResponse,
 )
-from app.api.models.scripts import ScriptVersionDetailResponse, ScriptVersionListResponse
+from app.api.models.scripts import (
+    ScriptUserEditResponse,
+    ScriptVersionDetailResponse,
+    ScriptVersionListResponse,
+)
 from app.core.config import Settings
 from app.db.models import (
     ChatConfirmationRecord,
@@ -209,6 +213,22 @@ class ChatAgentService:
             raise ChatSessionProjectRequiredError(session_id) from exc
         except ScriptVersionNotFoundError as exc:
             raise ChatScriptVersionNotFoundError(version_id) from exc
+
+    async def save_session_script_yaml(
+        self,
+        session_id: str,
+        script_yaml: str,
+        reason: str | None,
+    ) -> ScriptUserEditResponse:
+        project_id = await self._require_session_project_id(session_id)
+        try:
+            return await ScriptService(
+                self.session,
+                self.settings,
+                self.agent,
+            ).save_user_edit(project_id, script_yaml, reason)
+        except ScriptServiceProjectNotFoundError as exc:
+            raise ChatSessionProjectRequiredError(session_id) from exc
 
     async def stream_user_message(
         self,

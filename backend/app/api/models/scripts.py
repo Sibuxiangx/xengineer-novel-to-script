@@ -125,6 +125,40 @@ class ScriptRestoreResponse(BaseModel):
     script_yaml: str = Field(..., description="Restored YAML content.")
 
 
+class ScriptUserEditRequest(BaseModel):
+    script_yaml: str = Field(
+        ...,
+        min_length=1,
+        description="User-edited screenplay YAML content to persist as a new version.",
+    )
+    reason: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Optional human-readable reason for this user edit.",
+    )
+
+
+class ScriptUserEditResponse(BaseModel):
+    project_id: str = Field(..., description="Project identifier.")
+    script_yaml: str = Field(..., description="Persisted YAML content.")
+    validation_report: ValidationReportResponse = Field(
+        ...,
+        description="Validation result for the persisted YAML.",
+    )
+    accepted_version_id: str | None = Field(
+        default=None,
+        description="Newly created accepted version ID when validation passed.",
+    )
+    rejected_version_id: str | None = Field(
+        default=None,
+        description="Newly created rejected draft version ID when validation failed.",
+    )
+    validation_status: Literal["accepted", "rejected"] = Field(
+        ...,
+        description="Final persisted validation status of the saved YAML.",
+    )
+
+
 class ScriptExportResponse(BaseModel):
     project_id: str = Field(..., description="Project identifier.")
     file_name: str = Field(..., description="Suggested export file name.")

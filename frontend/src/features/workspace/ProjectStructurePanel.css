@@ -1,0 +1,48 @@
+.sw-structure-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.sw-structure-empty,
+.sw-structure-loading {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 4px;
+}
+
+.sw-structure-kicker {
+  font-size: 12px;
+}
+
+.sw-structure-title {
+  width: 100%;
+  min-width: 0;
+}
+
+.sw-structure-tag {
+  margin-inline-end: 0;
+}
+
+.sw-structure-panel .ant-tree {
+  background: transparent;
+}
+
+.sw-structure-panel .ant-tree-node-content-wrapper {
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.sw-structure-panel .ant-tree-node-content-wrapper:hover {
+  background: var(--sw-color-hover);
+}
+
+.sw-structure-panel .ant-tree-node-selected {
+  background: color-mix(in srgb, var(--sw-color-primary) 14%, transparent) !important;
+}
+
+.sw-structure-panel .ant-tree-title {
+  min-width: 0;
+  flex: 1 1 auto;
+}

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { App as AntdApp, Alert, Empty } from 'antd'
+import { App as AntdApp, Alert, Empty, Tabs } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { AppShell } from '../../layout/AppShell'
 import { WorkspaceHeader } from '../../layout/WorkspaceHeader'
 import { LeftRail } from '../../layout/LeftRail'
 import { WorkspaceSettingsModal } from '../../layout/WorkspaceSettingsModal'
 import { ConversationsPanel } from '../../features/sessions/ConversationsPanel'
+import { ProjectStructurePanel } from '../../features/workspace/ProjectStructurePanel'
 import {
   refreshSessionAssets,
   sessionDetailKey,
@@ -615,11 +616,39 @@ export default function WorkspacePage() {
           onToggleCollapsed={() => setLeftRailCollapsed(!leftRailCollapsed)}
           onOpenSettings={() => setSettingsOpen(true)}
         >
-          <ConversationsPanel
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={handleSelectSession}
-            onArchive={(sessionId) => void handleArchiveSession(sessionId)}
+          <Tabs
+            className="sw-rail-tabs"
+            size="small"
+            items={[
+              {
+                key: 'structure',
+                label: '结构',
+                children: (
+                  <ProjectStructurePanel
+                    hasProject={hasProject}
+                    chapters={chaptersQuery.data?.chapters ?? []}
+                    chaptersLoading={chaptersQuery.isLoading}
+                    bookIndex={bookIndexQuery.data ?? null}
+                    bookIndexLoading={bookIndexQuery.isLoading}
+                    versions={versions}
+                    activeTab={activeAssetTab}
+                    onSelectTab={handleSelectAssetTab}
+                  />
+                ),
+              },
+              {
+                key: 'sessions',
+                label: '会话',
+                children: (
+                  <ConversationsPanel
+                    sessions={sessions}
+                    activeSessionId={activeSessionId}
+                    onSelect={handleSelectSession}
+                    onArchive={(sessionId) => void handleArchiveSession(sessionId)}
+                  />
+                ),
+              },
+            ]}
           />
         </LeftRail>
       }

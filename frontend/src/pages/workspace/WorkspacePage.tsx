@@ -61,6 +61,15 @@ type PendingChatSend = {
   sourceFileName: string
 }
 
+type ScriptVersionCarrier = {
+  accepted_version_id?: string | null
+  rejected_version_id?: string | null
+}
+
+function getUpdatedScriptVersionId(payload: ScriptVersionCarrier): string | null {
+  return payload.accepted_version_id ?? payload.rejected_version_id ?? null
+}
+
 function getWorkbenchMeta(
   tab: AssetTab,
   options: { selectedChapter?: { order: number; title: string } | null } = {},
@@ -141,6 +150,7 @@ export default function WorkspacePage() {
   const [scriptDiscardKey, setScriptDiscardKey] = useState(0)
   const [pendingDirtySend, setPendingDirtySend] = useState<PendingChatSend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const lastScriptVersionRefreshKeyRef = useRef<string | null>(null)
   const lastSendArgsRef = useRef<{
     sessionId: string
     payload: ChatRunRequest
@@ -279,6 +289,25 @@ export default function WorkspacePage() {
     setScriptDraftState(state)
   }, [])
 
+  const refreshScriptVersionFromEvent = useCallback(
+    (versionId: string | null) => {
+      if (!activeSessionId || !versionId) return
+      const refreshKey = `${activeSessionId}:${versionId}`
+      void queryClient.invalidateQueries({
+        queryKey: ['script-versions', activeSessionId],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['script-version-detail', activeSessionId, versionId],
+      })
+      if (lastScriptVersionRefreshKeyRef.current === refreshKey) return
+      lastScriptVersionRefreshKeyRef.current = refreshKey
+      setSelectedVersionId(versionId)
+      setScriptDraftState({ dirty: false, yaml: '' })
+      setScriptDiscardKey((value) => value + 1)
+    },
+    [activeSessionId, queryClient],
+  )
+
   const handleSaveScriptYaml = useCallback(
     async (yaml: string) => {
       if (!activeSessionId) {
@@ -297,9 +326,9 @@ export default function WorkspacePage() {
             reason: '可视化编辑器：保存手动修改',
           },
         })
-        const nextVersionId = response.accepted_version_id ?? response.rejected_version_id
+        const nextVersionId = getUpdatedScriptVersionId(response)
         if (nextVersionId) {
-          setSelectedVersionId(nextVersionId)
+          refreshScriptVersionFromEvent(nextVersionId)
         }
         setScriptDraftState({ dirty: false, yaml: response.script_yaml })
         await refreshSessionAssets(queryClient, activeSessionId)
@@ -328,7 +357,14 @@ export default function WorkspacePage() {
         return null
       }
     },
-    [activeSessionId, notify, queryClient, scriptSave, setActiveAssetTab],
+    [
+      activeSessionId,
+      notify,
+      queryClient,
+      refreshScriptVersionFromEvent,
+      scriptSave,
+      setActiveAssetTab,
+    ],
   )
 
   async function handleSaveDirtyAndSend() {
@@ -565,6 +601,10 @@ export default function WorkspacePage() {
     setSourceFileName('小说原文.txt')
   }
 
+  useEffect(() => {
+    lastScriptVersionRefreshKeyRef.current = null
+  }, [activeSessionId])
+
   const lastValidationKeyRef = useRef<string | null>(null)
   useEffect(() => {
     const validation = sessionEvents.latestValidation
@@ -572,10 +612,11 @@ export default function WorkspacePage() {
     const key = `${validation.rejected_version_id ?? validation.accepted_version_id ?? ''}-${validation.validation_status}`
     if (lastValidationKeyRef.current === key) return
     lastValidationKeyRef.current = key
+    refreshScriptVersionFromEvent(getUpdatedScriptVersionId(validation))
     setActiveAssetTab(
       validation.validation_status === 'accepted' ? 'script' : 'validation',
     )
-  }, [sessionEvents.latestValidation, setActiveAssetTab])
+  }, [refreshScriptVersionFromEvent, sessionEvents.latestValidation, setActiveAssetTab])
 
   useEffect(() => {
     if (errorMessage) {
@@ -629,9 +670,16 @@ export default function WorkspacePage() {
         highlightTab = 'characters'
         label = '剧情索引'
       } else if (asset === 'script_yaml') {
+        refreshScriptVersionFromEvent(getUpdatedScriptVersionId(payload))
         void queryClient.invalidateQueries({
           queryKey: ['script-versions', sessionId],
         })
+        const nextVersionId = getUpdatedScriptVersionId(payload)
+        if (nextVersionId) {
+          void queryClient.invalidateQueries({
+            queryKey: ['script-version-detail', sessionId, nextVersionId],
+          })
+        }
         nextTab = payload.validation_status === 'accepted' ? 'script' : 'validation'
         highlightTab = nextTab
         label = payload.validation_status === 'accepted' ? '剧本' : '校验报告'
@@ -653,7 +701,14 @@ export default function WorkspacePage() {
         })
       }
     })
-  }, [onAssetUpdated, activeSessionId, queryClient, setActiveAssetTab, notification])
+  }, [
+    onAssetUpdated,
+    activeSessionId,
+    queryClient,
+    refreshScriptVersionFromEvent,
+    setActiveAssetTab,
+    notification,
+  ])
 
   const bubbleItems = useMemo(
     () =>

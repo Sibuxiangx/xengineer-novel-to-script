@@ -57,7 +57,7 @@ const statusConfig: Record<
     label: '修复中',
     color: 'processing',
     icon: <LoadingOutlined aria-hidden />,
-    description: 'harness 校验失败，正在自动修复',
+    description: '本地验证失败，正在自动修复',
   },
   ready: {
     label: '会话待命',

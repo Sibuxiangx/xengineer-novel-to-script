@@ -49,7 +49,7 @@ const TOOL_LABEL: Record<string, string> = {
   build_book_index: '抽取人物 / 地点 / 事件',
   generate_script_yaml: '生成剧本 YAML',
   edit_script_yaml: '局部修改剧本',
-  validate_script_yaml: 'harness 校验',
+  validate_script_yaml: '本地验证',
 }
 
 function statusBadge(tool: ToolCallEvent) {

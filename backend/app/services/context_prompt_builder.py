@@ -192,24 +192,37 @@ class ContextPromptBuilder:
                 block_type="task_instruction",
                 priority=100,
                 required=True,
-                content=(
-                    "请根据 harness 错误修复以下剧本 YAML，只输出符合 ScreenplayYaml 模型的结果。"
+                content="\n".join(
+                    [
+                        "请根据验证报告对上一版剧本 YAML 做定向修复。",
+                        "只修复验证报告指出的问题，不要从头重写或重新生成整份剧本。",
+                        "必须保留未出错的项目标题、人物、地点、场景、事件、稳定 ID 和顺序。",
+                        "如果需要补充字段，请基于上一版 YAML 的上下文做最小必要补充。",
+                        "最终只输出符合 ScreenplayYaml 模型的完整结构化结果，不要输出解释文字。",
+                    ]
                 ),
             ),
             self._block(
-                block_id="validation_report",
+                block_id="validation_issue_summary",
+                block_type="validation_issue_summary",
+                priority=98,
+                required=True,
+                content=self._validation_issue_summary(validation_report_json),
+            ),
+            self._block(
+                block_id="validation_report_json",
                 block_type="validation_report",
-                priority=95,
+                priority=96,
                 required=True,
                 content="\n".join(
                     [
-                        "harness errors:",
+                        "验证报告 JSON：",
                         json.dumps(validation_report_json, ensure_ascii=False, indent=2),
                     ]
                 ),
             ),
             self._block(
-                block_id="rejected_script_yaml",
+                block_id="previous_script_yaml",
                 block_type="script_yaml",
                 priority=90,
                 required=True,
@@ -290,6 +303,44 @@ class ContextPromptBuilder:
             ],
             ensure_ascii=False,
             indent=2,
+        )
+
+    def _validation_issue_summary(self, validation_report_json: dict[str, Any]) -> str:
+        issues: list[dict[str, Any]] = []
+        for kind in ("errors", "warnings"):
+            raw_items = validation_report_json.get(kind, [])
+            if not isinstance(raw_items, list):
+                continue
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                issues.append(
+                    {
+                        "kind": kind.removesuffix("s"),
+                        "code": item.get("code"),
+                        "path": item.get("path"),
+                        "severity": item.get("severity"),
+                        "message": item.get("message"),
+                        "repair_hint": item.get("repair_hint"),
+                    }
+                )
+        if not issues:
+            issues.append(
+                {
+                    "kind": "unknown",
+                    "code": "accepted_false_without_issue",
+                    "message": (
+                        "验证报告未列出具体问题，请对照完整验证报告和上一版 YAML "
+                        "修复导致 accepted=false 的最小必要字段。"
+                    ),
+                }
+            )
+        return "\n".join(
+            [
+                "以下是本次必须优先修复的问题定位。请逐条处理 path/code/message/repair_hint，"
+                "不要改动无关内容：",
+                json.dumps(issues, ensure_ascii=False, indent=2),
+            ]
         )
 
     def _excerpt(self, text: str) -> str:

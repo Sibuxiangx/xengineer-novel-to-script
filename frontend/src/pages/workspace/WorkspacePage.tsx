@@ -395,7 +395,7 @@ export default function WorkspacePage() {
     if (lastValidationKeyRef.current === key) return
     lastValidationKeyRef.current = key
     setActiveAssetTab(
-      validation.validation_status === 'accepted' ? 'yaml' : 'harness',
+      validation.validation_status === 'accepted' ? 'yaml' : 'validation',
     )
   }, [sessionEvents.latestValidation, setActiveAssetTab])
 
@@ -453,7 +453,7 @@ export default function WorkspacePage() {
         void queryClient.invalidateQueries({
           queryKey: ['script-versions', sessionId],
         })
-        nextTab = payload.validation_status === 'accepted' ? 'yaml' : 'harness'
+        nextTab = payload.validation_status === 'accepted' ? 'yaml' : 'validation'
         label = payload.validation_status === 'accepted' ? '剧本' : '校验报告'
       } else if (asset === 'project') {
         void queryClient.invalidateQueries({ queryKey: sessionsKey })
@@ -509,7 +509,7 @@ export default function WorkspacePage() {
       case 'generating':
         return '正在生成剧情索引与剧本…'
       case 'repairing':
-        return 'harness 校验失败，Agent 正在自动修复…'
+        return '本地验证失败，Agent 正在自动修复…'
       case 'awaiting':
         return '已生成分章预案，等待你的确认'
       case 'failed':
@@ -552,7 +552,7 @@ export default function WorkspacePage() {
         }
       />
     ),
-    harness: <ValidationAsset validation={sessionEvents.latestValidation} />,
+    validation: <ValidationAsset validation={sessionEvents.latestValidation} />,
     versions: (
       <VersionsAsset
         versions={versions}

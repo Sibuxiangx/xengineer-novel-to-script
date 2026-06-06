@@ -129,10 +129,10 @@ async def run_smoke(working_root: Path, timeout_seconds: float) -> dict[str, Any
                 timeout_seconds,
             )
 
-            _log("4/4 运行 harness 并汇总结果")
+            _log("4/4 运行本地验证并汇总结果")
             if not script_response.validation_report.accepted:
                 raise RuntimeError(
-                    "Generated script.yaml was rejected by harness: "
+                    "Generated script.yaml was rejected by validation: "
                     f"{script_response.validation_report.model_dump(mode='json')}"
                 )
             if script_response.accepted_version_id is None:

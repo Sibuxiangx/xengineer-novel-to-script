@@ -201,7 +201,7 @@ export function ScriptYamlAsset({
         <Alert
           type="warning"
           showIcon
-          message="这是 rejected draft，未通过 harness 校验"
+          message="这是 rejected draft，未通过本地验证"
           description="后端没有伪造成功，可在校验 Tab 看错误详情，再让 Agent 修复或自行接管。"
         />
       ) : null}

@@ -16,7 +16,7 @@ class ScriptValidateResponse(BaseModel):
     project_id: str = Field(..., description="Project identifier.")
     validation_report: ValidationReportResponse = Field(
         ...,
-        description="Harness validation report.",
+        description="Script validation report.",
     )
 
 
@@ -32,7 +32,7 @@ class ScriptGenerateResponse(BaseModel):
     script_yaml: str = Field(..., description="Generated screenplay YAML content.")
     validation_report: ValidationReportResponse = Field(
         ...,
-        description="Harness validation report.",
+        description="Script validation report.",
     )
     accepted_version_id: str | None = Field(
         default=None,
@@ -67,7 +67,7 @@ class ScriptEditResponse(BaseModel):
     script_yaml: str = Field(..., description="Patched screenplay YAML content.")
     validation_report: ValidationReportResponse = Field(
         ...,
-        description="Harness validation report.",
+        description="Script validation report.",
     )
     accepted_version_id: str | None = Field(default=None, description="Accepted version ID.")
     rejected_version_id: str | None = Field(
@@ -92,7 +92,7 @@ class ScriptRepairRequest(BaseModel):
     script_yaml: str = Field(..., min_length=1, description="Rejected screenplay YAML content.")
     validation_report: ValidationReportResponse = Field(
         ...,
-        description="Harness errors to repair.",
+        description="Validation issues to repair.",
     )
 
 

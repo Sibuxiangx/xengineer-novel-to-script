@@ -21,7 +21,7 @@ const TAB_DEFS: Array<{ key: AssetTab; label: string; icon: ReactNode }> = [
   { key: 'chapters', label: '章节', icon: <BookOutlined aria-hidden /> },
   { key: 'index', label: '剧情索引', icon: <DatabaseOutlined aria-hidden /> },
   { key: 'yaml', label: '剧本', icon: <CodeOutlined aria-hidden /> },
-  { key: 'harness', label: '校验', icon: <SafetyCertificateOutlined aria-hidden /> },
+  { key: 'validation', label: '校验', icon: <SafetyCertificateOutlined aria-hidden /> },
   { key: 'versions', label: '历史版本', icon: <HistoryOutlined aria-hidden /> },
 ]
 

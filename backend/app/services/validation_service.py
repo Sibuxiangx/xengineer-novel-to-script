@@ -61,7 +61,7 @@ class ValidationReport(BaseModel):
 
 
 class ValidationService:
-    """Harness boundary for script YAML validation."""
+    """Boundary for script YAML validation."""
 
     async def accept_empty_scaffold(self) -> ValidationReport:
         return ValidationReport(accepted=True)

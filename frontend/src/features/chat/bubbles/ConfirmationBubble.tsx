@@ -78,7 +78,7 @@ export function ConfirmationBubble({
         <Space>
           <SafetyCertificateOutlined aria-hidden />
           <Text strong>分章确认 · 等待你的决定</Text>
-          <Tag color="warning">HITL</Tag>
+          <Tag color="warning">待确认</Tag>
         </Space>
       }
       role="region"

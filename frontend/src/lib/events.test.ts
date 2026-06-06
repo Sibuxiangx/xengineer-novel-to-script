@@ -147,7 +147,7 @@ describe('parseRunCompletedWithErrors & error helpers', () => {
     const payload = parseRunCompletedWithErrors(
       makeEvent('run.completed_with_errors', {
         run_id: 'r1',
-        message: 'failed harness',
+        message: 'validation failed',
         rejected_version_id: 'rv-1',
         repair_attempt_count: 3,
       }),

@@ -356,7 +356,7 @@ export function buildBubbleItems(args: BuildBubbleItemsArgs): BubbleItemType[] {
         content: (
           <ValidationBubble
             payload={validation}
-            onOpenHarness={() => onJumpAssetTab('harness')}
+            onOpenValidation={() => onJumpAssetTab('validation')}
             onOpenYaml={() => {
               onJumpAssetTab('yaml')
               if (validation.rejected_version_id) {

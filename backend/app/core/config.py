@@ -39,7 +39,7 @@ class Settings(BaseSettings):
         3,
         ge=0,
         le=5,
-        description="Maximum automatic YAML repair attempts after harness rejection.",
+        description="Maximum automatic YAML repair attempts after validation rejection.",
     )
     context_reserved_output_tokens: int = Field(
         80_000,

@@ -10,13 +10,13 @@ const { Paragraph, Text } = Typography
 
 type ValidationBubbleProps = {
   payload: ValidationCompletedPayload
-  onOpenHarness?: () => void
+  onOpenValidation?: () => void
   onOpenYaml?: () => void
 }
 
 export function ValidationBubble({
   payload,
-  onOpenHarness,
+  onOpenValidation,
   onOpenYaml,
 }: ValidationBubbleProps) {
   const accepted = payload.validation_status === 'accepted'
@@ -38,7 +38,7 @@ export function ValidationBubble({
             <ExclamationCircleOutlined aria-hidden style={{ color: 'var(--sw-color-danger)' }} />
           )}
           <Text strong>
-            {accepted ? 'YAML 已通过 harness 校验' : 'YAML 未通过 harness 校验'}
+            {accepted ? 'YAML 已通过本地验证' : 'YAML 未通过本地验证'}
           </Text>
           {payload.repair_attempt_count > 0 ? (
             <Tag color="warning">已自动修复 {payload.repair_attempt_count} 次</Tag>
@@ -104,8 +104,8 @@ export function ValidationBubble({
         ) : null}
 
         <Space size={8} wrap>
-          {onOpenHarness ? (
-            <Button size="small" onClick={onOpenHarness}>
+          {onOpenValidation ? (
+            <Button size="small" onClick={onOpenValidation}>
               查看完整校验
             </Button>
           ) : null}

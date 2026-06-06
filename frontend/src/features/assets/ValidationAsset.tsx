@@ -11,7 +11,7 @@ type ValidationAssetProps = {
 
 export function ValidationAsset({ validation }: ValidationAssetProps) {
   if (!validation) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未运行 harness 校验" />
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未运行本地验证" />
   }
   const { validation_report: report } = validation
   const accepted = validation.validation_status === 'accepted'

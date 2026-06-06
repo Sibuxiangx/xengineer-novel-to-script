@@ -465,6 +465,7 @@ class ChatToolbox:
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             await self._record_model_usage_estimate(
+                tool=tool,
                 project_id=project_id,
                 task="build_book_index",
                 context_report=index.context_report,
@@ -537,6 +538,7 @@ class ChatToolbox:
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             await self._record_model_usage_estimate(
+                tool=tool,
                 project_id=project_id,
                 task="generate_script_yaml",
                 context_report=script.context_report,
@@ -623,6 +625,7 @@ class ChatToolbox:
             )
             await self._complete_tool(tool, result.model_dump(mode="json"))
             await self._record_model_usage_estimate(
+                tool=tool,
                 project_id=project_id,
                 task="edit_script_yaml",
                 context_report=edit.context_report,
@@ -732,6 +735,7 @@ class ChatToolbox:
     async def _record_model_usage_estimate(
         self,
         *,
+        tool: ChatToolCallRecord,
         project_id: str,
         task: str,
         context_report: ContextPackingReport | None,
@@ -749,6 +753,8 @@ class ChatToolbox:
             format_sse_event(
                 "model.usage.estimated",
                 {
+                    "id": f"usage:{tool.id}",
+                    "tool_call_id": tool.id,
                     "project_id": project_id,
                     "task": task,
                     "provider": "deepseek",

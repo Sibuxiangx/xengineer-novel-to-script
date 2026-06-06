@@ -129,6 +129,25 @@ class ChatTimelineItemResponse(BaseModel):
     created_at: datetime = Field(..., description="Timeline ordering timestamp.")
 
 
+class ModelUsageResponse(BaseModel):
+    id: str = Field(..., description="Stable UI identifier for this usage estimate.")
+    project_id: str = Field(..., description="Project associated with the model call.")
+    task: str = Field(..., description="Agent task name, such as generate_script_yaml.")
+    provider: str = Field(..., description="Model provider name.")
+    model: str = Field(..., description="Model name used for this task.")
+    estimated_input_tokens: int = Field(..., description="Estimated prompt/input token count.")
+    context_budget_tokens: int = Field(..., description="Context packing budget for the task.")
+    included_block_ids: list[str] = Field(
+        default_factory=list,
+        description="Context block IDs included in the model prompt.",
+    )
+    omitted_block_ids: list[str] = Field(
+        default_factory=list,
+        description="Context block IDs omitted by context packing.",
+    )
+    created_at: datetime = Field(..., description="Usage estimate creation time.")
+
+
 class ChatSessionDetailResponse(BaseModel):
     session: ChatSessionResponse = Field(..., description="Chat session metadata.")
     messages: list[ChatMessageResponse] = Field(..., description="Messages in display order.")
@@ -160,6 +179,13 @@ class ChatSessionDetailResponse(BaseModel):
     latest_versions: list[ScriptVersionResponse] = Field(
         default_factory=list,
         description="Latest screenplay versions for the linked project, including rejected drafts.",
+    )
+    model_usage: list[ModelUsageResponse] = Field(
+        default_factory=list,
+        description=(
+            "Persisted or reconstructed model usage estimates for this chat session. "
+            "The frontend uses this to restore the status-bar token counter after refresh."
+        ),
     )
 
 

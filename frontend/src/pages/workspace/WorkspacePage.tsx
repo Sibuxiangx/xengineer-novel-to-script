@@ -54,6 +54,7 @@ import { getErrorMessage } from '../../lib/api'
 import type {
   ChatRunRequest,
   ConfirmationActionRequest,
+  ModelUsage,
 } from '../../types'
 import './WorkspacePage.css'
 
@@ -72,6 +73,29 @@ type ScriptVersionCarrier = {
 
 function getUpdatedScriptVersionId(payload: ScriptVersionCarrier): string | null {
   return payload.accepted_version_id ?? payload.rejected_version_id ?? null
+}
+
+function mergeModelUsage(
+  persistedUsage: ModelUsage[] | undefined,
+  liveUsage: ModelUsage[],
+): ModelUsage[] {
+  const usageById = new Map<string, ModelUsage>()
+  const allUsage = [...(persistedUsage ?? []), ...liveUsage]
+  allUsage.forEach((item, index) => {
+    const key =
+      item.id ??
+      item.tool_call_id ??
+      [
+        item.project_id,
+        item.task,
+        item.model,
+        item.estimated_input_tokens,
+        item.context_budget_tokens,
+        item.created_at ?? index,
+      ].join(':')
+    usageById.set(key, item)
+  })
+  return [...usageById.values()]
 }
 
 function getWorkbenchMeta(
@@ -196,6 +220,10 @@ export default function WorkspacePage() {
   const pushEvent = useEventLog((state) => state.pushEvent)
   const clearError = useEventLog((state) => state.clearError)
   const onAssetUpdated = useEventLog((state) => state.onAssetUpdated)
+  const modelUsage = useMemo(
+    () => mergeModelUsage(sessionDetail?.model_usage, sessionEvents.modelUsage),
+    [sessionDetail?.model_usage, sessionEvents.modelUsage],
+  )
 
   const historyEvents = useMemo(
     () => buildHistoryEvents(sessionDetail),
@@ -914,7 +942,7 @@ export default function WorkspacePage() {
             projectStatus={projectStatus}
             runStatus={runStatus}
             isStreaming={isStreaming}
-            modelUsage={sessionEvents.modelUsage}
+            modelUsage={modelUsage}
             onOpenSettings={() => setSettingsOpen(true)}
           />
           <WorkspaceSettingsModal

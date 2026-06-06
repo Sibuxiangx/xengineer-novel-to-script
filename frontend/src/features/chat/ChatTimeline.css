@@ -11,6 +11,15 @@
   padding-bottom: 8px;
 }
 
+/* tool / system / confirm / validation rows: tighter vertical spacing */
+.sw-bubble-tool.ant-bubble,
+.sw-bubble-confirm.ant-bubble,
+.sw-bubble-validation.ant-bubble,
+.sw-bubble-system.ant-bubble,
+.sw-bubble-progress.ant-bubble {
+  margin-bottom: 2px !important;
+}
+
 .sw-bubble-list .ant-bubble-content {
   max-width: min(760px, 72vw);
   line-height: 1.72;
@@ -261,14 +270,236 @@
   }
 }
 
+/* ── ToolStepLine ─────────────────────────────────────── */
+.sw-tool-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 3px 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sw-color-text-muted);
+}
+
+.sw-tool-step-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.sw-tool-step-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.sw-tool-step:not(.is-running):not(.is-failed) .sw-tool-step-icon {
+  color: var(--sw-color-success);
+}
+
+.sw-tool-step.is-running .sw-tool-step-icon {
+  color: var(--sw-color-primary);
+}
+
+.sw-tool-step.is-failed .sw-tool-step-icon {
+  color: var(--sw-color-danger);
+}
+
+.sw-tool-step-label {
+  font-weight: 500;
+  color: var(--sw-color-text);
+}
+
+.sw-tool-step.is-failed .sw-tool-step-label {
+  color: var(--sw-color-danger);
+}
+
+.sw-tool-step-sep {
+  opacity: 0.35;
+}
+
+.sw-tool-step-summary {
+  color: var(--sw-color-text-muted);
+}
+
+.sw-tool-step-duration {
+  margin-left: auto;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* LLM stream output block */
+.sw-tool-step-stream-text {
+  margin: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--sw-color-soft);
+  border: 1px solid var(--sw-color-border);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--sw-color-text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sw-tool-step-stream-text.is-streaming::after {
+  content: "▋";
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--sw-color-primary);
+  animation: sw-type-caret 900ms steps(1) infinite;
+}
+
+.sw-tool-step-details {
+  margin-top: 0;
+}
+
+.sw-tool-step-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--sw-color-primary);
+  list-style: none;
+}
+
+.sw-tool-step-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.sw-tool-step-details[open] summary {
+  margin-bottom: 4px;
+}
+
+.sw-tool-step-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--sw-color-danger);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── ConfirmationCallout ──────────────────────────────── */
+.sw-confirm-callout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--sw-color-warning) 40%, var(--sw-color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sw-color-warning) 8%, var(--sw-color-surface));
+  max-width: 100%;
+}
+
+.sw-confirm-callout-body {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.sw-confirm-callout-icon {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--sw-color-warning);
+}
+
+.sw-confirm-callout-text {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ── ValidationLine ───────────────────────────────────── */
+.sw-validation-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.sw-validation-line.is-accepted {
+  background: color-mix(in srgb, var(--sw-color-success) 10%, var(--sw-color-surface));
+  border: 1px solid color-mix(in srgb, var(--sw-color-success) 28%, var(--sw-color-border));
+}
+
+.sw-validation-line.is-rejected {
+  background: color-mix(in srgb, var(--sw-color-danger) 8%, var(--sw-color-surface));
+  border: 1px solid color-mix(in srgb, var(--sw-color-danger) 28%, var(--sw-color-border));
+}
+
+.sw-validation-line-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.sw-validation-line-icon.is-accepted { color: var(--sw-color-success); }
+.sw-validation-line-icon.is-rejected { color: var(--sw-color-danger); }
+
+.sw-validation-line-status {
+  font-weight: 500;
+  color: var(--sw-color-text);
+}
+
+.sw-validation-line-meta {
+  color: var(--sw-color-text-muted);
+}
+
+.sw-validation-line-errors {
+  color: var(--sw-color-danger);
+  font-weight: 500;
+}
+
+.sw-validation-line-warnings {
+  color: var(--sw-color-warning);
+}
+
+/* ── RunSummaryBubble ─────────────────────────────────── */
+.sw-run-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.sw-run-summary.is-completed {
+  background: color-mix(in srgb, var(--sw-color-success) 10%, var(--sw-color-surface));
+  border: 1px solid color-mix(in srgb, var(--sw-color-success) 28%, var(--sw-color-border));
+  color: var(--sw-color-text);
+}
+
+.sw-run-summary.is-errors {
+  background: color-mix(in srgb, var(--sw-color-warning) 10%, var(--sw-color-surface));
+  border: 1px solid color-mix(in srgb, var(--sw-color-warning) 28%, var(--sw-color-border));
+  color: var(--sw-color-text);
+}
+
+.sw-run-summary-icon {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.sw-run-summary.is-completed .sw-run-summary-icon { color: var(--sw-color-success); }
+.sw-run-summary.is-errors .sw-run-summary-icon { color: var(--sw-color-warning); }
+
+.sw-run-summary-text {
+  flex: 1 1 auto;
+}
+
 @media (max-width: 900px) {
   .sw-chat-area {
     padding: 12px 14px 4px;
-  }
-  .sw-tool-card,
-  .sw-confirm-card,
-  .sw-validation-card,
-  .sw-progress-card {
-    width: 100%;
   }
 }

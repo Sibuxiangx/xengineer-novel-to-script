@@ -19,7 +19,7 @@ import {
 } from '../../lib/events'
 import type { AssetTab } from '../../state/uiPrefs'
 import { MessageBubbleContent } from './bubbles/MessageBubble'
-import { ToolTraceBubble } from './bubbles/ToolTraceBubble'
+import { ToolStepLine } from './bubbles/ToolStepLine'
 import { ValidationBubble } from './bubbles/ValidationBubble'
 import { ErrorBubble } from './bubbles/ErrorBubble'
 import { RunSummaryBubble } from './bubbles/RunSummaryBubble'
@@ -318,7 +318,7 @@ export function buildBubbleItems(args: BuildBubbleItemsArgs): BubbleItemType[] {
     items.push({
       key: `tool-${tool.id}`,
       role: 'tool',
-      content: <ToolTraceBubble tool={tool} />,
+      content: <ToolStepLine tool={tool} />,
     })
   }
 
@@ -356,9 +356,9 @@ export function buildBubbleItems(args: BuildBubbleItemsArgs): BubbleItemType[] {
         content: (
           <ValidationBubble
             payload={validation}
-            onOpenValidation={() => onJumpAssetTab('validation')}
+            onOpenHarness={() => onJumpAssetTab('validation')}
             onOpenYaml={() => {
-              onJumpAssetTab('yaml')
+              onJumpAssetTab('script')
               if (validation.rejected_version_id) {
                 onOpenRejectedVersion(validation.rejected_version_id)
               } else if (validation.accepted_version_id) {

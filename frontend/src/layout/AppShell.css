@@ -2,11 +2,19 @@
   --sw-left-rail-width: 304px;
   --sw-right-inspector-width: 432px;
 
-  display: grid;
-  grid-template-columns: var(--sw-left-rail-width) minmax(0, 1fr) var(--sw-right-inspector-width);
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   min-height: 100vh;
   background: var(--sw-color-layout);
+  overflow: hidden;
+}
+
+.sw-shell-body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: var(--sw-left-rail-width) minmax(0, 1fr) var(--sw-right-inspector-width);
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -17,24 +25,23 @@
 .sw-sider {
   border-right: 1px solid var(--sw-color-border);
   background: var(--sw-color-surface);
-  height: 100vh;
-  position: sticky;
-  top: 0;
+  height: 100%;
   overflow: hidden;
   min-width: 0;
 }
 
 .sw-main {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  height: 100vh;
+  height: 100%;
   background: var(--sw-color-layout);
   overflow: hidden;
 }
 
 .sw-content {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -44,9 +51,8 @@
 }
 
 .sw-inspector {
-  height: 100vh;
-  position: sticky;
-  top: 0;
+  position: relative;
+  height: 100%;
   border-left: 1px solid var(--sw-color-border);
   background: var(--sw-color-surface);
   overflow: hidden;
@@ -95,8 +101,8 @@ body.sw-shell--resizing-inspector {
 }
 
 @media (max-width: 900px) {
-  .sw-shell,
-  .sw-shell--rail-collapsed {
+  .sw-shell-body,
+  .sw-shell--rail-collapsed .sw-shell-body {
     grid-template-columns: 1fr;
   }
   .sw-sider,

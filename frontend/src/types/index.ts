@@ -178,6 +178,20 @@ export type ScriptVersionDetail = {
   script_yaml: string
 }
 
+export type ScriptUserEditRequest = {
+  script_yaml: string
+  reason?: string | null
+}
+
+export type ScriptUserEditResponse = {
+  project_id: string
+  script_yaml: string
+  validation_report: ValidationReport
+  accepted_version_id: string | null
+  rejected_version_id: string | null
+  validation_status: 'accepted' | 'rejected'
+}
+
 export type ChatRunRequest = {
   message: string
   source_file_name?: string | null

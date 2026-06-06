@@ -1,28 +1,29 @@
 import { useMemo, useState } from 'react'
-import { Avatar, Badge, Button, Layout, Popover, Space, Tag, Tooltip, Typography } from 'antd'
+import { Badge, Button, Popover, Space, Tag, Tooltip, Typography } from 'antd'
 import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
   RobotOutlined,
+  SettingOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
 import type { ProjectStatus, RunStatus } from '../types'
 import { UsageDigest } from '../features/observability/UsageDigest'
 import type { ModelUsagePayload } from '../lib/events'
-import './WorkspaceHeader.css'
+import './WorkspaceStatusBar.css'
 
-const { Header } = Layout
-const { Text, Title } = Typography
+const { Text } = Typography
 
-type WorkspaceHeaderProps = {
-  title: string
-  subtitle: string
+type WorkspaceStatusBarProps = {
+  brand: string
+  tip: string
   projectStatus: ProjectStatus
   runStatus: RunStatus
   isStreaming: boolean
   modelUsage: ModelUsagePayload[]
+  onOpenSettings?: () => void
 }
 
 const statusConfig: Record<
@@ -73,14 +74,15 @@ const statusConfig: Record<
   },
 }
 
-export function WorkspaceHeader({
-  title,
-  subtitle,
+export function WorkspaceStatusBar({
+  brand,
+  tip,
   projectStatus,
   runStatus,
   isStreaming,
   modelUsage,
-}: WorkspaceHeaderProps) {
+  onOpenSettings,
+}: WorkspaceStatusBarProps) {
   const [usageOpen, setUsageOpen] = useState(false)
 
   const status = statusConfig[projectStatus]
@@ -100,30 +102,27 @@ export function WorkspaceHeader({
   )
 
   return (
-    <Header className="sw-header" role="banner">
-      <div className="sw-header-title">
-        <Space size={12} align="center">
-          <Avatar size={42} icon={<RobotOutlined aria-hidden />} className="sw-brand-avatar" />
-          <div className="sw-header-meta">
-            <Title level={4} className="sw-header-name">
-              {title}
-            </Title>
-            <Text type="secondary" className="sw-header-subtitle">
-              {subtitle}
-            </Text>
-          </div>
-        </Space>
+    <footer className="sw-status-bar" role="contentinfo">
+      <div className="sw-status-bar-brand" aria-label="软件名">
+        <RobotOutlined aria-hidden className="sw-status-bar-brand-icon" />
+        <Text className="sw-status-bar-brand-name">{brand}</Text>
+      </div>
+
+      <div className="sw-status-bar-tip" aria-label="操作引导">
+        <Text type="secondary" className="sw-status-bar-tip-text">
+          {tip}
+        </Text>
       </div>
 
       <div
-        className="sw-header-actions"
+        className="sw-status-bar-actions"
         role="status"
         aria-live="polite"
         aria-label={`Agent 状态：${liveLabel}`}
       >
-        <Space size={8} wrap>
+        <Space size={8} wrap={false}>
           <Tooltip title={status.description}>
-            <Tag color={status.color} icon={status.icon} className="sw-status-tag">
+            <Tag color={status.color} icon={status.icon} className="sw-status-bar-tag">
               {status.label}
             </Tag>
           </Tooltip>
@@ -131,31 +130,45 @@ export function WorkspaceHeader({
           <Badge
             status={isStreaming ? 'processing' : 'default'}
             text={liveLabel}
-            className="sw-live-indicator"
+            className="sw-status-bar-live"
           />
 
           <Popover
             trigger="click"
             open={usageOpen}
             onOpenChange={setUsageOpen}
-            placement="bottomRight"
+            placement="topRight"
             content={<UsageDigest items={modelUsage} />}
             destroyOnHidden
           >
             <Tooltip title="本会话的模型用量与上下文打包估算">
               <Button
                 type="text"
+                size="small"
                 aria-label="查看用量与上下文估算"
                 aria-expanded={usageOpen}
                 aria-haspopup="dialog"
+                className="sw-status-bar-usage"
               >
                 用量 · {totalEstimatedTokens.toLocaleString('zh-CN')}
               </Button>
             </Tooltip>
           </Popover>
 
+          {onOpenSettings ? (
+            <Tooltip title="工作台设置">
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined aria-hidden />}
+                onClick={onOpenSettings}
+                aria-label="打开工作台设置"
+                className="sw-status-bar-settings"
+              />
+            </Tooltip>
+          ) : null}
         </Space>
       </div>
-    </Header>
+    </footer>
   )
 }

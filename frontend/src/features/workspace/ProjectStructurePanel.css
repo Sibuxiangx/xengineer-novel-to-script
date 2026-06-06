@@ -1,6 +1,9 @@
 .sw-structure-panel {
   width: 100%;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .sw-structure-empty,
@@ -12,13 +15,67 @@
   padding: 16px 4px;
 }
 
-.sw-structure-kicker {
+/* ── section block ─────────────────────────────────── */
+.sw-structure-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sw-structure-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 22px;
+  color: var(--sw-color-text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.sw-structure-section-icon {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.75;
+}
+
+.sw-structure-section-label {
+  font-size: 11px !important;
+  font-weight: 500;
+  color: var(--sw-color-text-muted) !important;
+  text-transform: none;
+}
+
+.sw-structure-section-meta {
+  margin-left: auto;
+}
+
+/* tools section: visually de-emphasized */
+.sw-structure-section.is-tools .sw-structure-section-header {
+  opacity: 0.7;
+}
+
+.sw-structure-section.is-tools .ant-tree-node-content-wrapper {
   font-size: 12px;
 }
 
+/* ── divider ──────────────────────────────────────── */
+.sw-structure-divider {
+  height: 1px;
+  margin: 4px 8px 2px;
+  background: var(--sw-color-border);
+  opacity: 0.6;
+}
+
+/* ── tree node title ──────────────────────────────── */
 .sw-structure-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
   min-width: 0;
+  gap: 6px;
 }
 
 .sw-structure-title-main,
@@ -31,6 +88,7 @@
 
 .sw-structure-title-main {
   flex: 1 1 auto;
+  min-width: 0;
 }
 
 .sw-structure-title-meta {
@@ -44,19 +102,31 @@
 
 .sw-structure-tag {
   margin-inline-end: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .sw-structure-dot {
   margin-inline-end: 2px;
 }
 
+/* ── antd tree overrides ──────────────────────────── */
 .sw-structure-panel .ant-tree {
   background: transparent;
+}
+
+.sw-structure-panel .ant-tree-list-holder-inner {
+  gap: 1px;
+}
+
+.sw-structure-panel .ant-tree-treenode {
+  padding: 0;
+  width: 100%;
 }
 
 .sw-structure-panel .ant-tree-node-content-wrapper {
   min-width: 0;
   border-radius: 8px;
+  padding-inline: 6px;
 }
 
 .sw-structure-panel .ant-tree-node-content-wrapper:hover {
@@ -70,4 +140,12 @@
 .sw-structure-panel .ant-tree-title {
   min-width: 0;
   flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* hide the switcher icon since we now use a flat list per section */
+.sw-structure-panel .ant-tree-switcher {
+  display: none;
 }

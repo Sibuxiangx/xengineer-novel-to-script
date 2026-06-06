@@ -1,0 +1,51 @@
+.sw-chapter-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sw-chapter-hero {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sw-color-primary) 6%, var(--sw-color-surface)),
+    var(--sw-color-surface)
+  );
+}
+
+.sw-chapter-kicker {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sw-color-text-muted);
+}
+
+.sw-chapter-title {
+  margin: 0 !important;
+  font-weight: 600;
+}
+
+.sw-chapter-event-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sw-chapter-event-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sw-chapter-content {
+  font-size: 14px;
+  line-height: 1.85;
+  color: var(--sw-color-text);
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 4px;
+}

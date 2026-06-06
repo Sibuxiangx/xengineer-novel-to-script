@@ -17,7 +17,7 @@ const LEFT_RAIL_EXPANDED_WIDTH = 304
 const LEFT_RAIL_COLLAPSED_WIDTH = 72
 
 type AppShellProps = {
-  header: ReactNode
+  statusBar: ReactNode
   leftRail: ReactNode
   rightInspector: ReactNode
   children: ReactNode
@@ -43,7 +43,7 @@ function clampInspectorWidth(width: number, leftRailCollapsed?: boolean): number
 }
 
 export function AppShell({
-  header,
+  statusBar,
   leftRail,
   rightInspector,
   children,
@@ -149,32 +149,34 @@ export function AppShell({
         )}
         style={shellStyle}
       >
-        <nav className="sw-sider" aria-label="项目会话栏">
-          {leftRail}
-        </nav>
-        <div className="sw-main">
-          {header}
-          <main
-            id="sw-main-content"
-            className="sw-content"
-            tabIndex={-1}
-            aria-label="剧本工作主区域"
-          >
-            {children}
-          </main>
+        <div className="sw-shell-body">
+          <nav className="sw-sider" aria-label="项目会话栏">
+            {leftRail}
+          </nav>
+          <div className="sw-main">
+            <main
+              id="sw-main-content"
+              className="sw-content"
+              tabIndex={-1}
+              aria-label="剧本工作主区域"
+            >
+              {children}
+            </main>
+          </div>
+          <aside className="sw-inspector" aria-label={rightPaneLabel}>
+            <div
+              className="sw-inspector-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="拖动调整 AI 对话侧栏宽度"
+              tabIndex={0}
+              onPointerDown={handleInspectorResizeStart}
+              onKeyDown={handleInspectorResizeKeyDown}
+            />
+            {rightInspector}
+          </aside>
         </div>
-        <aside className="sw-inspector" aria-label={rightPaneLabel}>
-          <div
-            className="sw-inspector-resizer"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="拖动调整 AI 对话侧栏宽度"
-            tabIndex={0}
-            onPointerDown={handleInspectorResizeStart}
-            onKeyDown={handleInspectorResizeKeyDown}
-          />
-          {rightInspector}
-        </aside>
+        {statusBar}
       </div>
     </>
   )

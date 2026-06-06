@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CopyOutlined,
+  DownloadOutlined,
+  SaveOutlined,
+  UndoOutlined,
+} from '@ant-design/icons'
 import Editor, { type Monaco } from '@monaco-editor/react'
 import { Alert, Button, Empty, Segmented, Skeleton, Space, Tag, Typography } from 'antd'
 import { parse, stringify } from 'yaml'
@@ -7,6 +13,8 @@ import {
   ScriptVisualEditor,
   type ScreenplayDraft,
 } from './ScriptVisualEditor'
+import type { ScriptUserEditResponse, ScriptVersion, ValidationReport } from '../../types'
+import './ScriptYamlAsset.css'
 
 type MonacoStandaloneEditor = {
   deltaDecorations: (oldIds: string[], newDecorations: MonacoDecoration[]) => string[]
@@ -27,19 +35,25 @@ type MonacoDecoration = {
     hoverMessage?: { value: string }
   }
 }
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
-import type { ScriptVersion, ValidationReport } from '../../types'
-import './ScriptYamlAsset.css'
 
 const { Text, Title, Paragraph } = Typography
 
 type ScriptViewMode = 'visual' | 'code'
 
+export type ScriptDraftState = {
+  dirty: boolean
+  yaml: string
+}
+
 type ScriptYamlAssetProps = {
+  sessionId: string | null
   yaml: string
   loading: boolean
   version: ScriptVersion | null
   validationReport: ValidationReport | null
+  resetKey?: number
+  onDraftStateChange?: (state: ScriptDraftState) => void
+  onSaveScriptYaml?: (yaml: string) => Promise<ScriptUserEditResponse | null>
 }
 
 function extractLineFromPath(yaml: string, path: string): number | null {
@@ -82,10 +96,14 @@ function parseDraft(yaml: string): { draft: ScreenplayDraft | null; error: strin
 }
 
 export function ScriptYamlAsset({
+  sessionId,
   yaml,
   loading,
   version,
   validationReport,
+  resetKey = 0,
+  onDraftStateChange,
+  onSaveScriptYaml,
 }: ScriptYamlAssetProps) {
   const parsed = useMemo(() => parseDraft(yaml), [yaml])
 
@@ -114,46 +132,68 @@ export function ScriptYamlAsset({
 
   return (
     <ScriptYamlContent
-      key={yaml}
+      key={`${yaml}:${resetKey}`}
+      sessionId={sessionId}
       yaml={yaml}
       initialDraft={parsed.draft}
       parseError={parsed.error}
       version={version}
       validationReport={validationReport}
+      onDraftStateChange={onDraftStateChange}
+      onSaveScriptYaml={onSaveScriptYaml}
     />
   )
 }
 
 type ScriptYamlContentProps = {
+  sessionId: string | null
   yaml: string
   initialDraft: ScreenplayDraft | null
   parseError: string | null
   version: ScriptVersion | null
   validationReport: ValidationReport | null
+  onDraftStateChange?: (state: ScriptDraftState) => void
+  onSaveScriptYaml?: (yaml: string) => Promise<ScriptUserEditResponse | null>
 }
 
 function ScriptYamlContent({
+  sessionId,
   yaml,
   initialDraft,
   parseError,
   version,
   validationReport,
+  onDraftStateChange,
+  onSaveScriptYaml,
 }: ScriptYamlContentProps) {
   const themeMode = useUiPrefs((state) => state.themeMode)
   const [viewMode, setViewMode] = useState<ScriptViewMode>(
     initialDraft ? 'visual' : 'code',
   )
   const [draft, setDraft] = useState<ScreenplayDraft | null>(initialDraft)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const editorRef = useRef<MonacoStandaloneEditor | null>(null)
   const decorationsRef = useRef<string[]>([])
 
-  const effectiveYaml = useMemo(() => {
+  const draftYaml = useMemo(() => {
     if (!draft) return yaml
     return stringify(draft, {
       lineWidth: 0,
       defaultStringType: 'PLAIN',
     })
   }, [draft, yaml])
+  const effectiveYaml = dirty ? draftYaml : yaml
+
+  useEffect(() => {
+    onDraftStateChange?.({ dirty, yaml: effectiveYaml })
+  }, [dirty, effectiveYaml, onDraftStateChange, yaml])
+
+  useEffect(() => {
+    return () => {
+      onDraftStateChange?.({ dirty: false, yaml })
+    }
+  }, [onDraftStateChange, yaml])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -243,6 +283,29 @@ function ScriptYamlContent({
     })
   }
 
+  function handleDraftChange(nextDraft: ScreenplayDraft) {
+    setDraft(nextDraft)
+    setDirty(true)
+  }
+
+  function handleDiscard() {
+    setDraft(initialDraft)
+    setDirty(false)
+  }
+
+  async function handleSave() {
+    if (!onSaveScriptYaml || !sessionId || !dirty) return
+    setSaving(true)
+    try {
+      const response = await onSaveScriptYaml(effectiveYaml)
+      if (response) {
+        setDirty(false)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="sw-yaml-wrap">
       <div className="sw-yaml-toolbar">
@@ -252,7 +315,8 @@ function ScriptYamlContent({
               <Tag color={version.validation_status === 'accepted' ? 'success' : 'warning'}>
                 {version.validation_status}
               </Tag>
-              <Text type="secondary">{version.reason}</Text>
+              <Text type="secondary">基于版本 {version.id}</Text>
+              {dirty ? <Tag color="warning">未保存改动</Tag> : null}
             </>
           ) : (
             <Text type="secondary">未选择版本</Text>
@@ -268,6 +332,24 @@ function ScriptYamlContent({
               { label: '源码', value: 'code' },
             ]}
           />
+          <Button
+            size="small"
+            icon={<UndoOutlined aria-hidden />}
+            onClick={handleDiscard}
+            disabled={!dirty || saving}
+          >
+            丢弃
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            icon={<SaveOutlined aria-hidden />}
+            onClick={() => void handleSave()}
+            loading={saving}
+            disabled={!dirty || !sessionId || !onSaveScriptYaml}
+          >
+            保存
+          </Button>
           <Button
             size="small"
             icon={<CopyOutlined aria-hidden />}
@@ -304,7 +386,7 @@ function ScriptYamlContent({
         />
       ) : null}
       {viewMode === 'visual' && draft ? (
-        <ScriptVisualEditor draft={draft} onDraftChange={setDraft} />
+        <ScriptVisualEditor draft={draft} onDraftChange={handleDraftChange} />
       ) : (
         <div className="sw-yaml-editor">
           <Editor

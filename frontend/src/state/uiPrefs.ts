@@ -1,10 +1,40 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AssetTab = 'chapters' | 'index' | 'yaml' | 'validation' | 'versions'
+export type AssetTab =
+  | 'overview'
+  | 'script'
+  | 'chapter'
+  | 'characters'
+  | 'locations'
+  | 'events'
+  | 'validation'
+  | 'versions'
+
 export type ThemeMode = 'light' | 'dark'
 
-const legacyValidationTabKey = ['har', 'ness'].join('')
+const LEGACY_TAB_MAP: Record<string, AssetTab> = {
+  yaml: 'script',
+  index: 'characters',
+  chapters: 'overview',
+  harness: 'validation',
+}
+
+function normalizeTab(value: unknown): AssetTab {
+  if (typeof value !== 'string') return 'overview'
+  const allTabs: AssetTab[] = [
+    'overview',
+    'script',
+    'chapter',
+    'characters',
+    'locations',
+    'events',
+    'validation',
+    'versions',
+  ]
+  if (allTabs.includes(value as AssetTab)) return value as AssetTab
+  return LEGACY_TAB_MAP[value] ?? 'overview'
+}
 
 type UiPrefsState = {
   activeAssetTab: AssetTab
@@ -22,7 +52,7 @@ type UiPrefsState = {
 export const useUiPrefs = create<UiPrefsState>()(
   persist(
     (set) => ({
-      activeAssetTab: 'yaml',
+      activeAssetTab: 'overview',
       leftRailCollapsed: false,
       rightInspectorWidth: 432,
       attachmentOpen: false,
@@ -35,15 +65,14 @@ export const useUiPrefs = create<UiPrefsState>()(
     }),
     {
       name: 'scriptweaver-ui-prefs',
-      version: 6,
+      version: 7,
       migrate: (persisted) => ({
         ...(persisted && typeof persisted === 'object' ? persisted : {}),
-        activeAssetTab:
-          persisted &&
-          typeof persisted === 'object' &&
-          (persisted as Partial<UiPrefsState>).activeAssetTab === legacyValidationTabKey
-            ? 'validation'
-            : 'yaml',
+        activeAssetTab: normalizeTab(
+          persisted && typeof persisted === 'object'
+            ? (persisted as Partial<UiPrefsState>).activeAssetTab
+            : undefined,
+        ),
         attachmentOpen: false,
         themeMode:
           persisted &&

@@ -1,0 +1,34 @@
+.sw-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sw-overview-empty {
+  padding: 32px;
+}
+
+.sw-overview-hero {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sw-color-primary) 6%, var(--sw-color-surface)),
+    var(--sw-color-surface)
+  );
+}
+
+.sw-overview-kicker {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.sw-overview-title {
+  margin: 0 !important;
+  font-weight: 600;
+}
+
+.sw-overview-logline {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--sw-color-text);
+}

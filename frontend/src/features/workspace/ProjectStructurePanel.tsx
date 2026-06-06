@@ -1,12 +1,14 @@
-import { Badge, Empty, Flex, Skeleton, Space, Tag, Tree, Typography } from 'antd'
+import { Badge, Empty, Skeleton, Tag, Tree, Typography } from 'antd'
 import {
   BookOutlined,
   CodeOutlined,
-  DatabaseOutlined,
   EnvironmentOutlined,
   ExclamationCircleOutlined,
+  FileTextOutlined,
   HistoryOutlined,
+  ReadOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
   ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -25,44 +27,21 @@ type ProjectStructurePanelProps = {
   bookIndexLoading: boolean
   versions: ScriptVersion[]
   activeTab: AssetTab
+  selectedChapterId: string | null
   highlightedTabs?: Partial<Record<AssetTab, boolean>>
-  onSelectTab: (tab: AssetTab) => void
+  onSelectTab: (tab: AssetTab, chapterId?: string | null) => void
 }
 
 type StructureNode = {
   key: string
   title: ReactNode
   icon?: ReactNode
-  children?: StructureNode[]
-}
-
-type IndexedCharacter = {
-  id?: string
-  names?: string[]
-  name?: string
-}
-
-type IndexedLocation = {
-  id?: string
-  name?: string
-}
-
-type IndexedEvent = {
-  id?: string
-  summary?: string
-}
-
-type IndexedChapter = {
-  id?: string
-  title?: string
-  order?: number
-  events?: IndexedEvent[]
 }
 
 type BookIndexShape = {
-  chapters?: IndexedChapter[]
-  characters?: IndexedCharacter[]
-  locations?: IndexedLocation[]
+  chapters?: { events?: unknown[] }[]
+  characters?: unknown[]
+  locations?: unknown[]
 }
 
 function extractShape(record: JsonRecord | undefined): BookIndexShape {
@@ -75,7 +54,7 @@ function nodeTitle(
   options: { warning?: boolean; highlighted?: boolean } = {},
 ) {
   return (
-    <Flex align="center" justify="space-between" gap={8} className="sw-structure-title">
+    <span className="sw-structure-title">
       <span className="sw-structure-title-main">
         {options.warning ? (
           <ExclamationCircleOutlined className="sw-structure-warning-icon" aria-hidden />
@@ -88,16 +67,63 @@ function nodeTitle(
         {options.highlighted ? <Badge dot className="sw-structure-dot" /> : null}
         {meta}
       </span>
-    </Flex>
+    </span>
   )
 }
 
-function keyToTab(key: string): AssetTab {
-  if (key.startsWith('asset:')) return key.slice('asset:'.length) as AssetTab
-  if (key.startsWith('chapter:')) return 'chapters'
-  if (key.startsWith('version:')) return 'versions'
-  if (key.startsWith('validation:')) return 'validation'
-  return 'index'
+type ParsedKey =
+  | { kind: 'tab'; tab: AssetTab }
+  | { kind: 'chapter'; chapterId: string }
+
+function parseKey(key: string): ParsedKey | null {
+  if (key.startsWith('chapter:')) {
+    return { kind: 'chapter', chapterId: key.slice('chapter:'.length) }
+  }
+  if (key.startsWith('tab:')) {
+    return { kind: 'tab', tab: key.slice('tab:'.length) as AssetTab }
+  }
+  return null
+}
+
+function selectedKeyFor(activeTab: AssetTab, selectedChapterId: string | null): string {
+  if (activeTab === 'chapter' && selectedChapterId) {
+    return `chapter:${selectedChapterId}`
+  }
+  return `tab:${activeTab}`
+}
+
+type SectionProps = {
+  label: string
+  icon: ReactNode
+  meta?: ReactNode
+  variant?: 'default' | 'tools'
+  treeData: StructureNode[]
+  selectedKey: string
+  onSelect: (key: string) => void
+}
+
+function Section({ label, icon, meta, variant, treeData, selectedKey, onSelect }: SectionProps) {
+  if (treeData.length === 0) return null
+  return (
+    <div className={`sw-structure-section${variant === 'tools' ? ' is-tools' : ''}`}>
+      <div className="sw-structure-section-header">
+        <span className="sw-structure-section-icon" aria-hidden>{icon}</span>
+        <Text className="sw-structure-section-label">{label}</Text>
+        {meta ? <span className="sw-structure-section-meta">{meta}</span> : null}
+      </div>
+      <Tree
+        blockNode
+        showIcon
+        selectable
+        selectedKeys={[selectedKey]}
+        treeData={treeData}
+        onSelect={(keys) => {
+          const key = String(keys[0] ?? '')
+          if (key) onSelect(key)
+        }}
+      />
+    </div>
+  )
 }
 
 export function ProjectStructurePanel({
@@ -108,6 +134,7 @@ export function ProjectStructurePanel({
   bookIndexLoading,
   versions,
   activeTab,
+  selectedChapterId,
   highlightedTabs = {},
   onSelectTab,
 }: ProjectStructurePanelProps) {
@@ -134,12 +161,24 @@ export function ProjectStructurePanel({
   const characters = shape.characters ?? []
   const locations = shape.locations ?? []
   const indexedChapters = shape.chapters ?? []
-  const acceptedCount = versions.filter((version) => version.validation_status === 'accepted').length
+  const eventTotal = indexedChapters.reduce(
+    (sum, chapter) => sum + (chapter.events?.length ?? 0),
+    0,
+  )
+  const acceptedCount = versions.filter(
+    (version) => version.validation_status === 'accepted',
+  ).length
   const rejectedCount = versions.length - acceptedCount
 
-  const treeData: StructureNode[] = [
+  // ── 剧本故事 ──
+  const storyNodes: StructureNode[] = [
     {
-      key: 'asset:yaml',
+      key: 'tab:overview',
+      icon: <FileTextOutlined aria-hidden />,
+      title: nodeTitle('项目基础信息', null, { highlighted: highlightedTabs.overview }),
+    },
+    {
+      key: 'tab:script',
       icon: <CodeOutlined aria-hidden />,
       title: nodeTitle(
         '剧本',
@@ -149,73 +188,53 @@ export function ProjectStructurePanel({
           </Tag>
         ) : versions.length > 0 ? (
           <Tag color="success" className="sw-structure-tag">
-            {versions.length}
+            v{versions.length}
           </Tag>
         ) : null,
-        { warning: rejectedCount > 0, highlighted: highlightedTabs.yaml },
+        { warning: rejectedCount > 0, highlighted: highlightedTabs.script },
       ),
     },
+    ...chapters.map((chapter) => ({
+      key: `chapter:${chapter.id}`,
+      icon: <ReadOutlined aria-hidden />,
+      title: nodeTitle(
+        `${String(chapter.order_index + 1).padStart(2, '0')} · ${chapter.title}`,
+      ),
+    })),
+  ]
+
+  // ── 故事元素 ──
+  const elementNodes: StructureNode[] = [
     {
-      key: 'asset:chapters',
-      icon: <BookOutlined aria-hidden />,
-      title: nodeTitle('章节', <Tag className="sw-structure-tag">{chapters.length}</Tag>, {
-        highlighted: highlightedTabs.chapters,
+      key: 'tab:characters',
+      icon: <UserOutlined aria-hidden />,
+      title: nodeTitle('角色设定', <Tag className="sw-structure-tag">{characters.length}</Tag>, {
+        highlighted: highlightedTabs.characters,
       }),
-      children: chapters.slice(0, 18).map((chapter) => ({
-        key: `chapter:${chapter.id}`,
-        title: nodeTitle(
-          `${String(chapter.order_index + 1).padStart(2, '0')} · ${chapter.title}`,
-        ),
-      })),
     },
     {
-      key: 'asset:index',
-      icon: <DatabaseOutlined aria-hidden />,
-      title: nodeTitle('剧情索引', null, { highlighted: highlightedTabs.index }),
-      children: [
-        {
-          key: 'index:characters',
-          icon: <UserOutlined aria-hidden />,
-          title: nodeTitle('角色', <Tag className="sw-structure-tag">{characters.length}</Tag>),
-          children: characters.slice(0, 12).map((character, index) => ({
-            key: `index:character:${character.id ?? index}`,
-            title: nodeTitle(character.names?.join(' / ') ?? character.name ?? `角色 ${index + 1}`),
-          })),
-        },
-        {
-          key: 'index:locations',
-          icon: <EnvironmentOutlined aria-hidden />,
-          title: nodeTitle('地点', <Tag className="sw-structure-tag">{locations.length}</Tag>),
-          children: locations.slice(0, 12).map((location, index) => ({
-            key: `index:location:${location.id ?? index}`,
-            title: nodeTitle(location.name ?? `地点 ${index + 1}`),
-          })),
-        },
-        {
-          key: 'index:events',
-          icon: <ThunderboltOutlined aria-hidden />,
-          title: nodeTitle(
-            '事件',
-            <Tag className="sw-structure-tag">
-              {indexedChapters.reduce((sum, chapter) => sum + (chapter.events?.length ?? 0), 0)}
-            </Tag>,
-          ),
-          children: indexedChapters.slice(0, 8).map((chapter, chapterIndex) => ({
-            key: `index:chapter-events:${chapter.id ?? chapterIndex}`,
-            title: nodeTitle(chapter.title ?? `章节 ${chapterIndex + 1}`),
-            children: (chapter.events ?? []).slice(0, 6).map((event, eventIndex) => ({
-              key: `index:event:${event.id ?? `${chapterIndex}-${eventIndex}`}`,
-              title: nodeTitle(event.summary ?? `事件 ${eventIndex + 1}`),
-            })),
-          })),
-        },
-      ],
+      key: 'tab:locations',
+      icon: <EnvironmentOutlined aria-hidden />,
+      title: nodeTitle('场景地点', <Tag className="sw-structure-tag">{locations.length}</Tag>, {
+        highlighted: highlightedTabs.locations,
+      }),
     },
     {
-      key: rejectedCount > 0 ? 'asset:validation' : 'validation:latest',
+      key: 'tab:events',
+      icon: <ThunderboltOutlined aria-hidden />,
+      title: nodeTitle('核心事件', <Tag className="sw-structure-tag">{eventTotal}</Tag>, {
+        highlighted: highlightedTabs.events,
+      }),
+    },
+  ]
+
+  // ── 项目工具 ──
+  const toolNodes: StructureNode[] = [
+    {
+      key: 'tab:validation',
       icon: <SafetyCertificateOutlined aria-hidden />,
       title: nodeTitle(
-        '校验',
+        '规则校验',
         rejectedCount > 0 ? (
           <Badge count={rejectedCount} size="small" color="var(--sw-color-danger)" />
         ) : (
@@ -227,7 +246,7 @@ export function ProjectStructurePanel({
       ),
     },
     {
-      key: 'asset:versions',
+      key: 'tab:versions',
       icon: <HistoryOutlined aria-hidden />,
       title: nodeTitle('历史版本', <Tag className="sw-structure-tag">{versions.length}</Tag>, {
         highlighted: highlightedTabs.versions,
@@ -235,30 +254,47 @@ export function ProjectStructurePanel({
     },
   ]
 
+  const selectedKey = selectedKeyFor(activeTab, selectedChapterId)
+  const handleSelect = (rawKey: string) => {
+    const parsed = parseKey(rawKey)
+    if (!parsed) return
+    if (parsed.kind === 'chapter') {
+      onSelectTab('chapter', parsed.chapterId)
+    } else {
+      onSelectTab(parsed.tab, null)
+    }
+  }
+
   return (
-    <Space orientation="vertical" size={10} className="sw-structure-panel">
-      <Flex align="center" justify="space-between" gap={8}>
-        <Text type="secondary" className="sw-structure-kicker">
-          项目结构
-        </Text>
-        {rejectedCount > 0 ? (
-          <Tag color="warning" className="sw-structure-tag">
-            {rejectedCount} 个草稿待修
-          </Tag>
-        ) : null}
-      </Flex>
-      <Tree
-        blockNode
-        showIcon
-        selectedKeys={[`asset:${activeTab}`]}
-        defaultExpandedKeys={['asset:chapters', 'asset:index']}
-        treeData={treeData}
-        onSelect={(keys) => {
-          const key = String(keys[0] ?? '')
-          if (!key) return
-          onSelectTab(keyToTab(key))
-        }}
+    <div className="sw-structure-panel">
+      <Section
+        label="剧本故事"
+        icon={<BookOutlined aria-hidden />}
+        meta={
+          chapters.length > 0 ? (
+            <Tag className="sw-structure-tag">{chapters.length} 章</Tag>
+          ) : null
+        }
+        treeData={storyNodes}
+        selectedKey={selectedKey}
+        onSelect={handleSelect}
       />
-    </Space>
+      <Section
+        label="故事元素"
+        icon={<ThunderboltOutlined aria-hidden />}
+        treeData={elementNodes}
+        selectedKey={selectedKey}
+        onSelect={handleSelect}
+      />
+      <div className="sw-structure-divider" role="separator" aria-hidden />
+      <Section
+        label="项目工具"
+        icon={<SettingOutlined aria-hidden />}
+        variant="tools"
+        treeData={toolNodes}
+        selectedKey={selectedKey}
+        onSelect={handleSelect}
+      />
+    </div>
   )
 }

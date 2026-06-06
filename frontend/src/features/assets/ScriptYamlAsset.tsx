@@ -14,6 +14,7 @@ import {
   type ScreenplayDraft,
 } from './ScriptVisualEditor'
 import type { ScriptUserEditResponse, ScriptVersion, ValidationReport } from '../../types'
+import type { ScriptVersionLabel } from './versionLabels'
 import './ScriptYamlAsset.css'
 
 type MonacoStandaloneEditor = {
@@ -50,6 +51,7 @@ type ScriptYamlAssetProps = {
   yaml: string
   loading: boolean
   version: ScriptVersion | null
+  versionLabel?: ScriptVersionLabel | null
   validationReport: ValidationReport | null
   resetKey?: number
   onDraftStateChange?: (state: ScriptDraftState) => void
@@ -100,6 +102,7 @@ export function ScriptYamlAsset({
   yaml,
   loading,
   version,
+  versionLabel,
   validationReport,
   resetKey = 0,
   onDraftStateChange,
@@ -138,6 +141,7 @@ export function ScriptYamlAsset({
       initialDraft={parsed.draft}
       parseError={parsed.error}
       version={version}
+      versionLabel={versionLabel}
       validationReport={validationReport}
       onDraftStateChange={onDraftStateChange}
       onSaveScriptYaml={onSaveScriptYaml}
@@ -151,6 +155,7 @@ type ScriptYamlContentProps = {
   initialDraft: ScreenplayDraft | null
   parseError: string | null
   version: ScriptVersion | null
+  versionLabel?: ScriptVersionLabel | null
   validationReport: ValidationReport | null
   onDraftStateChange?: (state: ScriptDraftState) => void
   onSaveScriptYaml?: (yaml: string) => Promise<ScriptUserEditResponse | null>
@@ -162,6 +167,7 @@ function ScriptYamlContent({
   initialDraft,
   parseError,
   version,
+  versionLabel,
   validationReport,
   onDraftStateChange,
   onSaveScriptYaml,
@@ -309,19 +315,32 @@ function ScriptYamlContent({
   return (
     <div className="sw-yaml-wrap">
       <div className="sw-yaml-toolbar">
-        <Space size={8} wrap>
+        <div className="sw-yaml-version-summary">
           {version ? (
             <>
+              <span
+                className={`sw-yaml-version-badge is-${versionLabel?.kind ?? 'accepted'}`}
+              >
+                {versionLabel?.label ?? '版本'}
+              </span>
+              <span className="sw-yaml-version-copy">
+                <Text strong>当前剧本版本</Text>
+                <Text type="secondary" ellipsis>
+                  保存修改会从该版本派生新版本，不覆盖历史。
+                </Text>
+              </span>
               <Tag color={version.validation_status === 'accepted' ? 'success' : 'warning'}>
                 {version.validation_status}
               </Tag>
-              <Text type="secondary">基于版本 {version.id}</Text>
+              <Text type="secondary" code className="sw-yaml-version-id">
+                {version.id}
+              </Text>
               {dirty ? <Tag color="warning">未保存改动</Tag> : null}
             </>
           ) : (
             <Text type="secondary">未选择版本</Text>
           )}
-        </Space>
+        </div>
         <Space size={8}>
           <Segmented
             size="small"

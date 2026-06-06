@@ -26,6 +26,8 @@ type ProjectStructurePanelProps = {
   bookIndex: BookIndexResponse | null
   bookIndexLoading: boolean
   versions: ScriptVersion[]
+  selectedScriptVersionLabel?: string | null
+  selectedScriptVersionTone?: 'accepted' | 'draft' | null
   activeTab: AssetTab
   selectedChapterId: string | null
   highlightedTabs?: Partial<Record<AssetTab, boolean>>
@@ -133,6 +135,8 @@ export function ProjectStructurePanel({
   bookIndex,
   bookIndexLoading,
   versions,
+  selectedScriptVersionLabel,
+  selectedScriptVersionTone,
   activeTab,
   selectedChapterId,
   highlightedTabs = {},
@@ -182,16 +186,19 @@ export function ProjectStructurePanel({
       icon: <CodeOutlined aria-hidden />,
       title: nodeTitle(
         '剧本',
-        rejectedCount > 0 ? (
+        selectedScriptVersionLabel ? (
+          <Tag
+            color={selectedScriptVersionTone === 'draft' ? 'warning' : 'success'}
+            className="sw-structure-version-tag"
+          >
+            {selectedScriptVersionLabel}
+          </Tag>
+        ) : rejectedCount > 0 ? (
           <Tag color="warning" className="sw-structure-tag">
             待修
           </Tag>
-        ) : versions.length > 0 ? (
-          <Tag color="success" className="sw-structure-tag">
-            v{versions.length}
-          </Tag>
         ) : null,
-        { warning: rejectedCount > 0, highlighted: highlightedTabs.script },
+        { highlighted: highlightedTabs.script },
       ),
     },
     ...chapters.map((chapter) => ({

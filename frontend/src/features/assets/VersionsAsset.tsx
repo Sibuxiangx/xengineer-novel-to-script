@@ -2,6 +2,7 @@ import { Card, Empty, Flex, Skeleton, Space, Tag, Typography } from 'antd'
 import { CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import type { ScriptVersion } from '../../types'
 import { formatDate } from '../../lib/formatting'
+import { buildVersionLabelMap, type ScriptVersionLabel } from './versionLabels'
 import './VersionsAsset.css'
 
 const { Text } = Typography
@@ -28,6 +29,7 @@ export function VersionsAsset({
 
   const accepted = versions.filter((version) => version.validation_status === 'accepted')
   const rejected = versions.filter((version) => version.validation_status !== 'accepted')
+  const versionLabels = buildVersionLabelMap(versions)
 
   return (
     <Space orientation="vertical" size={16} style={{ width: '100%' }}>
@@ -43,6 +45,7 @@ export function VersionsAsset({
               <VersionCard
                 key={version.id}
                 version={version}
+                label={versionLabels.get(version.id)}
                 selected={version.id === selectedVersionId}
                 tone="accepted"
                 onSelect={() => onSelectVersion(version.id)}
@@ -56,7 +59,7 @@ export function VersionsAsset({
         <section aria-label="未通过校验的草稿版本">
           <Flex align="center" gap={6} style={{ marginBottom: 8 }}>
             <ExclamationCircleOutlined aria-hidden style={{ color: 'var(--sw-color-warning)' }} />
-            <Text strong>Rejected drafts</Text>
+            <Text strong>未通过草稿</Text>
             <Tag color="warning">{rejected.length}</Tag>
           </Flex>
           <Space orientation="vertical" size={8} style={{ width: '100%' }}>
@@ -64,6 +67,7 @@ export function VersionsAsset({
               <VersionCard
                 key={version.id}
                 version={version}
+                label={versionLabels.get(version.id)}
                 selected={version.id === selectedVersionId}
                 tone="rejected"
                 onSelect={() => onSelectVersion(version.id)}
@@ -78,12 +82,13 @@ export function VersionsAsset({
 
 type VersionCardProps = {
   version: ScriptVersion
+  label?: ScriptVersionLabel
   selected: boolean
   tone: 'accepted' | 'rejected'
   onSelect: () => void
 }
 
-function VersionCard({ version, selected, tone, onSelect }: VersionCardProps) {
+function VersionCard({ version, label, selected, tone, onSelect }: VersionCardProps) {
   return (
     <Card
       size="small"
@@ -99,7 +104,7 @@ function VersionCard({ version, selected, tone, onSelect }: VersionCardProps) {
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      aria-label={`版本 ${version.id} · ${version.validation_status}`}
+      aria-label={`${label?.description ?? '剧本版本'} · ${version.id} · ${version.validation_status}`}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
@@ -107,16 +112,19 @@ function VersionCard({ version, selected, tone, onSelect }: VersionCardProps) {
         }
       }}
     >
-      <Flex justify="space-between" align="center" gap={12}>
-        <Space orientation="vertical" size={2}>
-          <Text strong ellipsis>
+      <div className="sw-version-card-inner">
+        <span className={`sw-version-badge is-${tone}`}>
+          {label?.label ?? (tone === 'accepted' ? 'v?' : 'D?')}
+        </span>
+        <div className="sw-version-card-main">
+          <Text strong className="sw-version-title">
             {version.reason}
           </Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" className="sw-version-meta">
             {formatDate(version.created_at)} · {version.id}
           </Text>
-        </Space>
-        <Space orientation="vertical" size={2} align="end">
+        </div>
+        <Space orientation="vertical" size={2} align="end" className="sw-version-state">
           <Tag color={tone === 'accepted' ? 'success' : 'warning'}>
             {version.validation_status}
           </Tag>
@@ -124,7 +132,7 @@ function VersionCard({ version, selected, tone, onSelect }: VersionCardProps) {
             {version.operation_count > 0 ? `${version.operation_count} 步` : ''}
           </Text>
         </Space>
-      </Flex>
+      </div>
     </Card>
   )
 }

@@ -42,6 +42,10 @@ import { EventsAsset } from '../../features/assets/EventsAsset'
 import { ScriptYamlAsset, type ScriptDraftState } from '../../features/assets/ScriptYamlAsset'
 import { ValidationAsset } from '../../features/assets/ValidationAsset'
 import { VersionsAsset } from '../../features/assets/VersionsAsset'
+import {
+  buildVersionLabelMap,
+  getLatestAcceptedVersion,
+} from '../../features/assets/versionLabels'
 import { selectSession, useEventLog } from '../../state/eventLog'
 import { useUiPrefs, type AssetTab } from '../../state/uiPrefs'
 import { streamPost } from '../../lib/sse'
@@ -130,7 +134,7 @@ export default function WorkspacePage() {
   const { sessionId: routeSessionId } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { message: notify, notification } = AntdApp.useApp()
+  const { message: notify, modal, notification } = AntdApp.useApp()
 
   const [message, setMessage] = useState('')
   const [sourceText, setSourceText] = useState('')
@@ -228,9 +232,18 @@ export default function WorkspacePage() {
     () => versionsQuery.data?.versions ?? [],
     [versionsQuery.data],
   )
-  const accepted = versions.find((v) => v.validation_status === 'accepted')
+  const versionLabels = useMemo(() => buildVersionLabelMap(versions), [versions])
+  const accepted = useMemo(() => getLatestAcceptedVersion(versions), [versions])
   const effectiveVersionId =
     selectedVersionId ?? accepted?.id ?? versions[0]?.id ?? null
+  const selectedVersionLabel = effectiveVersionId
+    ? (versionLabels.get(effectiveVersionId) ?? null)
+    : null
+  const selectedVersionReason = selectedVersionLabel
+    ? `${selectedVersionLabel.description}（${effectiveVersionId}）`
+    : effectiveVersionId
+      ? `版本 ${effectiveVersionId}`
+      : '当前版本'
   const versionDetailQuery = useScriptVersionDetail(
     activeSessionId,
     effectiveVersionId,
@@ -281,9 +294,47 @@ export default function WorkspacePage() {
     [setActiveAssetTab],
   )
 
-  const handleOpenVersion = useCallback((versionId: string) => {
+  const applySelectedScriptVersion = useCallback((versionId: string) => {
     setSelectedVersionId(versionId)
-  }, [])
+    setActiveAssetTab('script')
+    setScriptDraftState({ dirty: false, yaml: '' })
+    setScriptDiscardKey((value) => value + 1)
+  }, [setActiveAssetTab])
+
+  const handleOpenVersion = useCallback(
+    (versionId: string) => {
+      applySelectedScriptVersion(versionId)
+    },
+    [applySelectedScriptVersion],
+  )
+
+  const handleSelectScriptVersion = useCallback(
+    (versionId: string) => {
+      if (versionId === effectiveVersionId) {
+        setActiveAssetTab('script')
+        return
+      }
+      if (!scriptDraftState.dirty) {
+        applySelectedScriptVersion(versionId)
+        return
+      }
+      modal.confirm({
+        title: '切换剧本版本？',
+        content:
+          '当前可视化编辑器里有未保存改动。切换版本会丢弃这些本地改动，历史版本本身不会被覆盖。',
+        okText: '丢弃并切换',
+        cancelText: '取消',
+        onOk: () => applySelectedScriptVersion(versionId),
+      })
+    },
+    [
+      applySelectedScriptVersion,
+      effectiveVersionId,
+      modal,
+      scriptDraftState.dirty,
+      setActiveAssetTab,
+    ],
+  )
 
   const handleScriptDraftStateChange = useCallback((state: ScriptDraftState) => {
     setScriptDraftState(state)
@@ -323,7 +374,7 @@ export default function WorkspacePage() {
           sessionId: activeSessionId,
           payload: {
             script_yaml: yaml,
-            reason: '可视化编辑器：保存手动修改',
+            reason: `可视化编辑器：从${selectedVersionReason}派生保存手动修改`,
           },
         })
         const nextVersionId = getUpdatedScriptVersionId(response)
@@ -362,6 +413,7 @@ export default function WorkspacePage() {
       notify,
       queryClient,
       refreshScriptVersionFromEvent,
+      selectedVersionReason,
       scriptSave,
       setActiveAssetTab,
     ],
@@ -790,6 +842,7 @@ export default function WorkspacePage() {
         yaml={versionDetailQuery.data?.script_yaml ?? ''}
         loading={versionDetailQuery.isLoading}
         version={versionDetailQuery.data?.version ?? null}
+        versionLabel={selectedVersionLabel}
         validationReport={
           sessionEvents.latestValidation?.validation_report ?? null
         }
@@ -829,10 +882,7 @@ export default function WorkspacePage() {
         versions={versions}
         selectedVersionId={effectiveVersionId}
         loading={versionsQuery.isLoading}
-        onSelectVersion={(id) => {
-          setSelectedVersionId(id)
-          setActiveAssetTab('script')
-        }}
+        onSelectVersion={handleSelectScriptVersion}
       />
     ),
   }
@@ -902,6 +952,8 @@ export default function WorkspacePage() {
                     bookIndex={bookIndexQuery.data ?? null}
                     bookIndexLoading={bookIndexQuery.isLoading}
                     versions={versions}
+                    selectedScriptVersionLabel={selectedVersionLabel?.shortLabel ?? null}
+                    selectedScriptVersionTone={selectedVersionLabel?.kind ?? null}
                     activeTab={activeAssetTab}
                     selectedChapterId={selectedChapterId}
                     highlightedTabs={assetHighlights}

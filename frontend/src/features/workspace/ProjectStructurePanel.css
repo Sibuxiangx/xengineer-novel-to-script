@@ -105,6 +105,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.sw-structure-version-tag {
+  margin-inline-end: 0;
+  min-width: 34px;
+  border: 0;
+  border-radius: 999px;
+  text-align: center;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
 .sw-structure-dot {
   margin-inline-end: 2px;
 }

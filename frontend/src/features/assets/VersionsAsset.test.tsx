@@ -49,7 +49,7 @@ describe('VersionsAsset', () => {
       />,
     )
     expect(screen.getByText('已接受版本')).toBeInTheDocument()
-    expect(screen.getByText('Rejected drafts')).toBeInTheDocument()
+    expect(screen.getByText('未通过草稿')).toBeInTheDocument()
     expect(screen.getByText('first accepted')).toBeInTheDocument()
     expect(screen.getByText('rejected draft')).toBeInTheDocument()
   })
@@ -64,7 +64,7 @@ describe('VersionsAsset', () => {
         onSelectVersion={onSelect}
       />,
     )
-    const buttons = screen.getAllByRole('button', { name: /版本 v-/ })
+    const buttons = screen.getAllByRole('button', { name: /正式剧本 v1/ })
     expect(buttons.length).toBeGreaterThan(0)
     buttons[0].click()
     expect(onSelect).toHaveBeenCalled()

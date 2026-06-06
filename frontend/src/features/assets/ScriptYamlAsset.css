@@ -15,6 +15,59 @@
   flex-wrap: wrap;
 }
 
+.sw-yaml-version-summary {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 8px;
+  flex: 1 1 360px;
+  overflow: hidden;
+}
+
+.sw-yaml-version-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  height: 36px;
+  padding-inline: 12px;
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 850;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sw-yaml-version-badge.is-accepted {
+  color: var(--sw-color-success);
+  background: color-mix(in srgb, var(--sw-color-success) 14%, transparent);
+}
+
+.sw-yaml-version-badge.is-draft {
+  color: var(--sw-color-warning);
+  background: color-mix(in srgb, var(--sw-color-warning) 16%, transparent);
+}
+
+.sw-yaml-version-copy {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sw-yaml-version-copy .ant-typography {
+  max-width: 100%;
+}
+
+.sw-yaml-version-id {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sw-yaml-editor {
   flex: 1 1 auto;
   min-height: 520px;

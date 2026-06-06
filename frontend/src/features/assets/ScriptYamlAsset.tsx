@@ -1,7 +1,20 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CopyOutlined,
+  DownloadOutlined,
+  SaveOutlined,
+  UndoOutlined,
+} from '@ant-design/icons'
 import Editor, { type Monaco } from '@monaco-editor/react'
-import { Alert, Button, Empty, Skeleton, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Empty, Segmented, Skeleton, Space, Tag, Typography } from 'antd'
+import { parse, stringify } from 'yaml'
 import { useUiPrefs } from '../../state/uiPrefs'
+import {
+  ScriptVisualEditor,
+  type ScreenplayDraft,
+} from './ScriptVisualEditor'
+import type { ScriptUserEditResponse, ScriptVersion, ValidationReport } from '../../types'
+import './ScriptYamlAsset.css'
 
 type MonacoStandaloneEditor = {
   deltaDecorations: (oldIds: string[], newDecorations: MonacoDecoration[]) => string[]
@@ -22,17 +35,25 @@ type MonacoDecoration = {
     hoverMessage?: { value: string }
   }
 }
-import { CopyOutlined, DownloadOutlined } from '@ant-design/icons'
-import type { ScriptVersion, ValidationReport } from '../../types'
-import './ScriptYamlAsset.css'
 
-const { Text } = Typography
+const { Text, Title, Paragraph } = Typography
+
+type ScriptViewMode = 'visual' | 'code'
+
+export type ScriptDraftState = {
+  dirty: boolean
+  yaml: string
+}
 
 type ScriptYamlAssetProps = {
+  sessionId: string | null
   yaml: string
   loading: boolean
   version: ScriptVersion | null
   validationReport: ValidationReport | null
+  resetKey?: number
+  onDraftStateChange?: (state: ScriptDraftState) => void
+  onSaveScriptYaml?: (yaml: string) => Promise<ScriptUserEditResponse | null>
 }
 
 function extractLineFromPath(yaml: string, path: string): number | null {
@@ -58,15 +79,121 @@ function extractLineFromPath(yaml: string, path: string): number | null {
   return cursor + 1
 }
 
+function asDraft(value: unknown): ScreenplayDraft | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as ScreenplayDraft
+}
+
+function parseDraft(yaml: string): { draft: ScreenplayDraft | null; error: string | null } {
+  try {
+    return { draft: asDraft(parse(yaml)), error: null }
+  } catch (error) {
+    return {
+      draft: null,
+      error: error instanceof Error ? error.message : 'YAML 解析失败',
+    }
+  }
+}
+
 export function ScriptYamlAsset({
+  sessionId,
   yaml,
   loading,
   version,
   validationReport,
+  resetKey = 0,
+  onDraftStateChange,
+  onSaveScriptYaml,
 }: ScriptYamlAssetProps) {
+  const parsed = useMemo(() => parseDraft(yaml), [yaml])
+
+  if (loading) {
+    return <Skeleton active paragraph={{ rows: 8 }} />
+  }
+  if (!yaml) {
+    return (
+      <div className="sw-yaml-empty">
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <Space orientation="vertical" size={4}>
+              <Title level={4} className="sw-yaml-empty-title">
+                剧本还没有生成
+              </Title>
+              <Paragraph type="secondary" className="sw-yaml-empty-copy">
+                在右侧对话里上传小说 TXT，并确认分章后，生成的剧本会出现在这里。
+              </Paragraph>
+            </Space>
+          }
+        />
+      </div>
+    )
+  }
+
+  return (
+    <ScriptYamlContent
+      key={`${yaml}:${resetKey}`}
+      sessionId={sessionId}
+      yaml={yaml}
+      initialDraft={parsed.draft}
+      parseError={parsed.error}
+      version={version}
+      validationReport={validationReport}
+      onDraftStateChange={onDraftStateChange}
+      onSaveScriptYaml={onSaveScriptYaml}
+    />
+  )
+}
+
+type ScriptYamlContentProps = {
+  sessionId: string | null
+  yaml: string
+  initialDraft: ScreenplayDraft | null
+  parseError: string | null
+  version: ScriptVersion | null
+  validationReport: ValidationReport | null
+  onDraftStateChange?: (state: ScriptDraftState) => void
+  onSaveScriptYaml?: (yaml: string) => Promise<ScriptUserEditResponse | null>
+}
+
+function ScriptYamlContent({
+  sessionId,
+  yaml,
+  initialDraft,
+  parseError,
+  version,
+  validationReport,
+  onDraftStateChange,
+  onSaveScriptYaml,
+}: ScriptYamlContentProps) {
   const themeMode = useUiPrefs((state) => state.themeMode)
+  const [viewMode, setViewMode] = useState<ScriptViewMode>(
+    initialDraft ? 'visual' : 'code',
+  )
+  const [draft, setDraft] = useState<ScreenplayDraft | null>(initialDraft)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const editorRef = useRef<MonacoStandaloneEditor | null>(null)
   const decorationsRef = useRef<string[]>([])
+
+  const draftYaml = useMemo(() => {
+    if (!draft) return yaml
+    return stringify(draft, {
+      lineWidth: 0,
+      defaultStringType: 'PLAIN',
+    })
+  }, [draft, yaml])
+  const effectiveYaml = dirty ? draftYaml : yaml
+
+  useEffect(() => {
+    onDraftStateChange?.({ dirty, yaml: effectiveYaml })
+  }, [dirty, effectiveYaml, onDraftStateChange, yaml])
+
+  useEffect(() => {
+    return () => {
+      onDraftStateChange?.({ dirty: false, yaml })
+    }
+  }, [onDraftStateChange, yaml])
 
   useEffect(() => {
     const editor = editorRef.current
@@ -76,7 +203,7 @@ export function ScriptYamlAsset({
       : []
     const decorations: MonacoDecoration[] = []
     for (const issue of issues) {
-      const line = extractLineFromPath(yaml, issue.path)
+      const line = extractLineFromPath(effectiveYaml, issue.path)
       if (line == null) continue
       decorations.push({
         range: {
@@ -106,21 +233,14 @@ export function ScriptYamlAsset({
         decorationsRef.current = []
       }
     }
-  }, [yaml, validationReport])
-
-  if (loading) {
-    return <Skeleton active paragraph={{ rows: 8 }} />
-  }
-  if (!yaml) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未生成剧本草稿" />
-  }
+  }, [effectiveYaml, validationReport])
 
   function copyYaml() {
-    void navigator.clipboard.writeText(yaml)
+    void navigator.clipboard.writeText(effectiveYaml)
   }
 
   function downloadYaml() {
-    const blob = new Blob([yaml], { type: 'application/x-yaml' })
+    const blob = new Blob([effectiveYaml], { type: 'application/x-yaml' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -163,6 +283,29 @@ export function ScriptYamlAsset({
     })
   }
 
+  function handleDraftChange(nextDraft: ScreenplayDraft) {
+    setDraft(nextDraft)
+    setDirty(true)
+  }
+
+  function handleDiscard() {
+    setDraft(initialDraft)
+    setDirty(false)
+  }
+
+  async function handleSave() {
+    if (!onSaveScriptYaml || !sessionId || !dirty) return
+    setSaving(true)
+    try {
+      const response = await onSaveScriptYaml(effectiveYaml)
+      if (response) {
+        setDirty(false)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="sw-yaml-wrap">
       <div className="sw-yaml-toolbar">
@@ -172,13 +315,41 @@ export function ScriptYamlAsset({
               <Tag color={version.validation_status === 'accepted' ? 'success' : 'warning'}>
                 {version.validation_status}
               </Tag>
-              <Text type="secondary">{version.reason}</Text>
+              <Text type="secondary">基于版本 {version.id}</Text>
+              {dirty ? <Tag color="warning">未保存改动</Tag> : null}
             </>
           ) : (
             <Text type="secondary">未选择版本</Text>
           )}
         </Space>
         <Space size={8}>
+          <Segmented
+            size="small"
+            value={viewMode}
+            onChange={(value) => setViewMode(value as ScriptViewMode)}
+            options={[
+              { label: '可视化', value: 'visual', disabled: !draft },
+              { label: '源码', value: 'code' },
+            ]}
+          />
+          <Button
+            size="small"
+            icon={<UndoOutlined aria-hidden />}
+            onClick={handleDiscard}
+            disabled={!dirty || saving}
+          >
+            丢弃
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            icon={<SaveOutlined aria-hidden />}
+            onClick={() => void handleSave()}
+            loading={saving}
+            disabled={!dirty || !sessionId || !onSaveScriptYaml}
+          >
+            保存
+          </Button>
           <Button
             size="small"
             icon={<CopyOutlined aria-hidden />}
@@ -201,29 +372,42 @@ export function ScriptYamlAsset({
         <Alert
           type="warning"
           showIcon
-          message="这是 rejected draft，未通过本地验证"
-          description="后端没有伪造成功，可在校验 Tab 看错误详情，再让 Agent 修复或自行接管。"
+          closable
+          className="sw-yaml-warning-strip"
+          message="草稿未通过本地验证，可从左侧「校验」查看问题，或让 Agent 修复。"
         />
       ) : null}
-      <div className="sw-yaml-editor">
-        <Editor
-          height="100%"
-          defaultLanguage="yaml"
-          value={yaml}
-          theme={themeMode === 'dark' ? 'scriptweaver-dark' : 'vs-light'}
-          beforeMount={handleEditorBeforeMount}
-          onMount={handleEditorMount}
-          options={{
-            readOnly: true,
-            minimap: { enabled: false },
-            fontSize: 13,
-            lineHeight: 21,
-            scrollBeyondLastLine: false,
-            wordWrap: 'on',
-            glyphMargin: true,
-          }}
+      {parseError ? (
+        <Alert
+          type="error"
+          showIcon
+          message="当前 YAML 暂无法进入可视化模式"
+          description="已自动切换到源码模式，请让 Agent 修复或在源码中检查语法。"
         />
-      </div>
+      ) : null}
+      {viewMode === 'visual' && draft ? (
+        <ScriptVisualEditor draft={draft} onDraftChange={handleDraftChange} />
+      ) : (
+        <div className="sw-yaml-editor">
+          <Editor
+            height="100%"
+            defaultLanguage="yaml"
+            value={effectiveYaml}
+            theme={themeMode === 'dark' ? 'scriptweaver-dark' : 'vs-light'}
+            beforeMount={handleEditorBeforeMount}
+            onMount={handleEditorMount}
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineHeight: 21,
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              glyphMargin: true,
+            }}
+          />
+        </div>
+      )}
     </div>
   )
 }

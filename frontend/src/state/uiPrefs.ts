@@ -1,17 +1,39 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AssetTab = 'chapters' | 'index' | 'yaml' | 'validation' | 'versions'
+export type AssetTab =
+  | 'overview'
+  | 'script'
+  | 'chapter'
+  | 'characters'
+  | 'locations'
+  | 'events'
+  | 'validation'
+  | 'versions'
+
 export type ThemeMode = 'light' | 'dark'
 
-const legacyValidationTabKey = ['har', 'ness'].join('')
-const assetTabs = new Set<AssetTab>(['chapters', 'index', 'yaml', 'validation', 'versions'])
+const LEGACY_TAB_MAP: Record<string, AssetTab> = {
+  yaml: 'script',
+  index: 'characters',
+  chapters: 'overview',
+  harness: 'validation',
+}
 
-function normalizeAssetTab(value: unknown): AssetTab {
-  if (value === legacyValidationTabKey) return 'validation'
-  return typeof value === 'string' && assetTabs.has(value as AssetTab)
-    ? (value as AssetTab)
-    : 'chapters'
+function normalizeTab(value: unknown): AssetTab {
+  if (typeof value !== 'string') return 'overview'
+  const allTabs: AssetTab[] = [
+    'overview',
+    'script',
+    'chapter',
+    'characters',
+    'locations',
+    'events',
+    'validation',
+    'versions',
+  ]
+  if (allTabs.includes(value as AssetTab)) return value as AssetTab
+  return LEGACY_TAB_MAP[value] ?? 'overview'
 }
 
 type UiPrefsState = {
@@ -30,9 +52,9 @@ type UiPrefsState = {
 export const useUiPrefs = create<UiPrefsState>()(
   persist(
     (set) => ({
-      activeAssetTab: 'chapters',
+      activeAssetTab: 'overview',
       leftRailCollapsed: false,
-      rightInspectorWidth: 408,
+      rightInspectorWidth: 432,
       attachmentOpen: false,
       themeMode: 'light',
       setActiveAssetTab: (tab) => set({ activeAssetTab: tab }),
@@ -43,10 +65,10 @@ export const useUiPrefs = create<UiPrefsState>()(
     }),
     {
       name: 'scriptweaver-ui-prefs',
-      version: 5,
+      version: 7,
       migrate: (persisted) => ({
         ...(persisted && typeof persisted === 'object' ? persisted : {}),
-        activeAssetTab: normalizeAssetTab(
+        activeAssetTab: normalizeTab(
           persisted && typeof persisted === 'object'
             ? (persisted as Partial<UiPrefsState>).activeAssetTab
             : undefined,
@@ -63,10 +85,10 @@ export const useUiPrefs = create<UiPrefsState>()(
           typeof persisted === 'object' &&
           typeof (persisted as Partial<UiPrefsState>).rightInspectorWidth === 'number'
             ? Math.min(
-                720,
-                Math.max(320, (persisted as Partial<UiPrefsState>).rightInspectorWidth ?? 408),
+                560,
+                Math.max(360, (persisted as Partial<UiPrefsState>).rightInspectorWidth ?? 432),
               )
-            : 408,
+            : 432,
       }),
     },
   ),

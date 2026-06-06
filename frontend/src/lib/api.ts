@@ -3,6 +3,8 @@ import type {
   Chapter,
   ChatSession,
   ChatSessionDetail,
+  ScriptUserEditRequest,
+  ScriptUserEditResponse,
   ScriptVersion,
   ScriptVersionDetail,
 } from '../types'
@@ -111,6 +113,12 @@ export const api = {
     return request<ScriptVersionDetail>(
       `/chat/sessions/${sessionId}/assets/scripts/versions/${versionId}`,
     )
+  },
+  saveScriptYaml(sessionId: string, payload: ScriptUserEditRequest) {
+    return request<ScriptUserEditResponse>(`/chat/sessions/${sessionId}/assets/scripts/yaml`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
   },
 }
 

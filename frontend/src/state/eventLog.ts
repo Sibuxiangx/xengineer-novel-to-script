@@ -14,7 +14,7 @@ import {
 } from '../lib/events'
 import type { ChatConfirmation, SseEvent, ToolCallEvent } from '../types'
 
-type SessionEventState = {
+export type SessionEventState = {
   events: LiveEvent[]
   toolCalls: Record<string, ToolCallEvent>
   pendingConfirmation: ChatConfirmation | null
@@ -68,6 +68,27 @@ const nextId = () => {
 }
 
 function applyEvent(state: SessionEventState, sse: SseEvent): SessionEventState {
+  // Hot-path optimization: tool.call.delta events fire dozens of times per
+  // second while the LLM streams. Do NOT push them into `state.events` —
+  // doing so makes `mergedEvents` change reference on every token, which
+  // triggers a full bubble-list rebuild and freezes the page.
+  if (sse.event === SSE_EVENT_NAMES.toolCallDelta) {
+    const delta = parseToolCallDelta(sse)
+    if (!delta) return state
+    const existing = state.toolCalls[delta.id]
+    if (!existing) return state
+    return {
+      ...state,
+      toolCalls: {
+        ...state.toolCalls,
+        [delta.id]: {
+          ...existing,
+          deltas: [...(existing.deltas ?? []), delta],
+        },
+      },
+    }
+  }
+
   const liveEvent: LiveEvent = {
     ...sse,
     id: nextId(),
@@ -96,22 +117,10 @@ function applyEvent(state: SessionEventState, sse: SseEvent): SessionEventState 
     case SSE_EVENT_NAMES.toolCallFailed: {
       const tool = parseToolCallEvent(sse)
       if (tool) {
-        next.toolCalls = { ...state.toolCalls, [tool.id]: tool }
-      }
-      break
-    }
-    case SSE_EVENT_NAMES.toolCallDelta: {
-      const delta = parseToolCallDelta(sse)
-      if (delta) {
-        const existing = state.toolCalls[delta.id]
-        if (existing) {
-          next.toolCalls = {
-            ...state.toolCalls,
-            [delta.id]: {
-              ...existing,
-              deltas: [...(existing.deltas ?? []), delta],
-            },
-          }
+        const existing = state.toolCalls[tool.id]
+        next.toolCalls = {
+          ...state.toolCalls,
+          [tool.id]: { ...tool, deltas: existing?.deltas ?? tool.deltas },
         }
       }
       break

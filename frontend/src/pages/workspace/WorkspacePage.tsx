@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { App as AntdApp, Alert, Empty } from 'antd'
+import { App as AntdApp, Alert, Button, Empty, Modal, Space, Tabs } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { AppShell } from '../../layout/AppShell'
-import { WorkspaceHeader } from '../../layout/WorkspaceHeader'
+import { WorkspaceStatusBar } from '../../layout/WorkspaceStatusBar'
 import { LeftRail } from '../../layout/LeftRail'
-import { RightInspector } from '../../layout/RightInspector'
 import { WorkspaceSettingsModal } from '../../layout/WorkspaceSettingsModal'
 import { ConversationsPanel } from '../../features/sessions/ConversationsPanel'
+import { ProjectStructurePanel } from '../../features/workspace/ProjectStructurePanel'
 import {
   refreshSessionAssets,
   sessionDetailKey,
@@ -18,6 +18,7 @@ import {
   useChapters,
   useCreateSession,
   useRestoreSession,
+  useSaveScriptYaml,
   useScriptVersionDetail,
   useScriptVersions,
   useSessionDetail,
@@ -29,13 +30,16 @@ import {
 } from '../../features/sessions/inferProjectStatus'
 import { ChatTimeline } from '../../features/chat/ChatTimeline'
 import { ChatComposer } from '../../features/chat/ChatComposer'
+import { LiveToolStream } from '../../features/chat/LiveToolStream'
 import { buildBubbleItems } from '../../features/chat/buildBubbleItems'
 import { buildHistoryEvents } from '../../features/chat/replayHistory'
-import { AssetTabs } from '../../features/assets/AssetTabs'
 import { AssetGuide } from '../../features/assets/AssetGuide'
-import { ChaptersAsset } from '../../features/assets/ChaptersAsset'
-import { BookIndexAsset } from '../../features/assets/BookIndexAsset'
-import { ScriptYamlAsset } from '../../features/assets/ScriptYamlAsset'
+import { OverviewAsset } from '../../features/assets/OverviewAsset'
+import { ChapterDetailAsset } from '../../features/assets/ChapterDetailAsset'
+import { CharactersAsset } from '../../features/assets/CharactersAsset'
+import { LocationsAsset } from '../../features/assets/LocationsAsset'
+import { EventsAsset } from '../../features/assets/EventsAsset'
+import { ScriptYamlAsset, type ScriptDraftState } from '../../features/assets/ScriptYamlAsset'
 import { ValidationAsset } from '../../features/assets/ValidationAsset'
 import { VersionsAsset } from '../../features/assets/VersionsAsset'
 import { selectSession, useEventLog } from '../../state/eventLog'
@@ -48,6 +52,70 @@ import type {
   ConfirmationActionRequest,
 } from '../../types'
 import './WorkspacePage.css'
+
+type WorkbenchMeta = { title: string; subtitle: string }
+
+type PendingChatSend = {
+  message: string
+  sourceText: string
+  sourceFileName: string
+}
+
+function getWorkbenchMeta(
+  tab: AssetTab,
+  options: { selectedChapter?: { order: number; title: string } | null } = {},
+): WorkbenchMeta {
+  switch (tab) {
+    case 'overview':
+      return {
+        title: '项目基础信息',
+        subtitle: '一句话故事、风格设定与资产总览。',
+      }
+    case 'script':
+      return {
+        title: '剧本',
+        subtitle: '在可视化表单和 YAML 源码之间切换查看剧本草稿。',
+      }
+    case 'chapter': {
+      if (options.selectedChapter) {
+        const orderLabel = String(options.selectedChapter.order).padStart(2, '0')
+        return {
+          title: `第 ${orderLabel} 章 · ${options.selectedChapter.title}`,
+          subtitle: '查看本章原文、摘要与抽取出的事件。',
+        }
+      }
+      return {
+        title: '章节',
+        subtitle: '请在左侧选择具体章节。',
+      }
+    }
+    case 'characters':
+      return {
+        title: '角色设定',
+        subtitle: '抽取出的角色名册与基本设定卡片。',
+      }
+    case 'locations':
+      return {
+        title: '场景地点',
+        subtitle: '故事发生的地点列表。',
+      }
+    case 'events':
+      return {
+        title: '核心事件',
+        subtitle: '按章节排列的关键事件时间线。',
+      }
+    case 'validation':
+      return {
+        title: '规则校验',
+        subtitle: '查看本地验证结果、问题定位和修复建议。',
+      }
+    case 'versions':
+      return {
+        title: '历史版本',
+        subtitle: '回看已生成的 accepted / rejected 剧本版本。',
+      }
+  }
+}
 
 export default function WorkspacePage() {
   const { sessionId: routeSessionId } = useParams()
@@ -65,6 +133,13 @@ export default function WorkspacePage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [restoringSessionId, setRestoringSessionId] = useState<string | null>(null)
   const [assetHighlights, setAssetHighlights] = useState<Partial<Record<AssetTab, boolean>>>({})
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
+  const [scriptDraftState, setScriptDraftState] = useState<ScriptDraftState>({
+    dirty: false,
+    yaml: '',
+  })
+  const [scriptDiscardKey, setScriptDiscardKey] = useState(0)
+  const [pendingDirtySend, setPendingDirtySend] = useState<PendingChatSend | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const lastSendArgsRef = useRef<{
     sessionId: string
@@ -171,6 +246,10 @@ export default function WorkspacePage() {
   )
 
   const messages = sessionDetail?.messages ?? []
+  const sessionsCreate = useCreateSession()
+  const sessionsArchive = useArchiveSession()
+  const sessionsRestore = useRestoreSession()
+  const scriptSave = useSaveScriptYaml()
 
   const handleRuleDraftChange = useCallback(
     (confirmationId: string, value: string) => {
@@ -180,9 +259,14 @@ export default function WorkspacePage() {
   )
 
   const handleSelectAssetTab = useCallback(
-    (tab: AssetTab) => {
+    (tab: AssetTab, chapterId?: string | null) => {
       setActiveAssetTab(tab)
       setAssetHighlights((prev) => ({ ...prev, [tab]: false }))
+      if (tab === 'chapter') {
+        if (chapterId !== undefined) setSelectedChapterId(chapterId)
+      } else if (chapterId === null) {
+        setSelectedChapterId(null)
+      }
     },
     [setActiveAssetTab],
   )
@@ -191,16 +275,89 @@ export default function WorkspacePage() {
     setSelectedVersionId(versionId)
   }, [])
 
+  const handleScriptDraftStateChange = useCallback((state: ScriptDraftState) => {
+    setScriptDraftState(state)
+  }, [])
+
+  const handleSaveScriptYaml = useCallback(
+    async (yaml: string) => {
+      if (!activeSessionId) {
+        void notify.open({
+          type: 'warning',
+          content: '请先创建或选择一个会话。',
+          duration: 3,
+        })
+        return null
+      }
+      try {
+        const response = await scriptSave.mutateAsync({
+          sessionId: activeSessionId,
+          payload: {
+            script_yaml: yaml,
+            reason: '可视化编辑器：保存手动修改',
+          },
+        })
+        const nextVersionId = response.accepted_version_id ?? response.rejected_version_id
+        if (nextVersionId) {
+          setSelectedVersionId(nextVersionId)
+        }
+        setScriptDraftState({ dirty: false, yaml: response.script_yaml })
+        await refreshSessionAssets(queryClient, activeSessionId)
+        if (response.validation_status === 'accepted') {
+          setActiveAssetTab('script')
+          void notify.open({
+            type: 'success',
+            content: '剧本修改已保存为新版本',
+            duration: 2.5,
+          })
+        } else {
+          setActiveAssetTab('validation')
+          void notify.open({
+            type: 'warning',
+            content: '修改已保存为未通过验证的草稿，请先查看校验问题。',
+            duration: 4,
+          })
+        }
+        return response
+      } catch (error) {
+        void notify.open({
+          type: 'error',
+          content: getErrorMessage(error),
+          duration: 4,
+        })
+        return null
+      }
+    },
+    [activeSessionId, notify, queryClient, scriptSave, setActiveAssetTab],
+  )
+
+  async function handleSaveDirtyAndSend() {
+    const pending = pendingDirtySend
+    if (!pending || isStreaming) return
+    const response = await handleSaveScriptYaml(scriptDraftState.yaml)
+    if (response?.validation_status !== 'accepted') {
+      setPendingDirtySend(null)
+      return
+    }
+    setPendingDirtySend(null)
+    await submitChatRun(pending.message, pending.sourceText, pending.sourceFileName)
+  }
+
+  async function handleDiscardDirtyAndSend() {
+    const pending = pendingDirtySend
+    if (!pending || isStreaming) return
+    setScriptDiscardKey((value) => value + 1)
+    setScriptDraftState({ dirty: false, yaml: '' })
+    setPendingDirtySend(null)
+    await submitChatRun(pending.message, pending.sourceText, pending.sourceFileName)
+  }
+
   async function ensureSession(): Promise<string> {
     if (activeSessionId) return activeSessionId
     const created = await sessionsCreate.mutateAsync(undefined)
     navigate(`/sessions/${created.id}`, { replace: true })
     return created.id
   }
-
-  const sessionsCreate = useCreateSession()
-  const sessionsArchive = useArchiveSession()
-  const sessionsRestore = useRestoreSession()
 
   async function runStream(
     sessionId: string,
@@ -222,18 +379,18 @@ export default function WorkspacePage() {
     }
   }
 
-  async function handleSend(submitted?: string) {
-    const finalMessage = (submitted ?? message).trim()
-    const finalSource = sourceText.trim()
-    if ((!finalMessage && !finalSource) || isStreaming) return
-
+  async function submitChatRun(
+    finalMessage: string,
+    finalSource: string,
+    finalSourceFileName: string,
+  ) {
     setErrorMessage(null)
     setIsStreaming(true)
     try {
       const sessionId = await ensureSession()
       const payload: ChatRunRequest = {
         message: finalMessage || '请开始改编这篇小说。',
-        source_file_name: finalSource ? sourceFileName : null,
+        source_file_name: finalSource ? finalSourceFileName : null,
         source_text: finalSource || null,
         screenplay_format: 'short_drama',
       }
@@ -243,13 +400,30 @@ export default function WorkspacePage() {
       await runStream(sessionId, `/chat/sessions/${sessionId}/runs/stream`, payload)
       setSourceText('')
       await refreshSessionAssets(queryClient, sessionId)
-      setActiveAssetTab('chapters')
+      setActiveAssetTab('script')
     } catch (error) {
       if ((error as DOMException)?.name === 'AbortError') return
       setErrorMessage(getErrorMessage(error))
     } finally {
       setIsStreaming(false)
     }
+  }
+
+  async function handleSend(submitted?: string) {
+    const finalMessage = (submitted ?? message).trim()
+    const finalSource = sourceText.trim()
+    if ((!finalMessage && !finalSource) || isStreaming) return
+
+    if (scriptDraftState.dirty && scriptDraftState.yaml.trim()) {
+      setPendingDirtySend({
+        message: finalMessage,
+        sourceText: finalSource,
+        sourceFileName,
+      })
+      return
+    }
+
+    await submitChatRun(finalMessage, finalSource, sourceFileName)
   }
 
   async function handleRetryLast() {
@@ -295,7 +469,7 @@ export default function WorkspacePage() {
         payload,
       )
       await refreshSessionAssets(queryClient, pendingConfirmation.session_id)
-      setActiveAssetTab(action === 'confirm' ? 'yaml' : 'chapters')
+      setActiveAssetTab(action === 'confirm' ? 'script' : 'overview')
     } catch (error) {
       if ((error as DOMException)?.name === 'AbortError') return
       setErrorMessage(getErrorMessage(error))
@@ -312,6 +486,8 @@ export default function WorkspacePage() {
       setMessage('')
       setSourceText('')
       setSelectedVersionId(null)
+      setScriptDraftState({ dirty: false, yaml: '' })
+      setScriptDiscardKey((value) => value + 1)
       navigate(`/sessions/${created.id}`)
     } catch (error) {
       setErrorMessage(getErrorMessage(error))
@@ -322,6 +498,8 @@ export default function WorkspacePage() {
     setMessage('')
     setSourceText('')
     setSelectedVersionId(null)
+    setScriptDraftState({ dirty: false, yaml: '' })
+    setScriptDiscardKey((value) => value + 1)
     setErrorMessage(null)
     navigate(`/sessions/${sessionId}`)
   }
@@ -395,7 +573,7 @@ export default function WorkspacePage() {
     if (lastValidationKeyRef.current === key) return
     lastValidationKeyRef.current = key
     setActiveAssetTab(
-      validation.validation_status === 'accepted' ? 'yaml' : 'validation',
+      validation.validation_status === 'accepted' ? 'script' : 'validation',
     )
   }, [sessionEvents.latestValidation, setActiveAssetTab])
 
@@ -437,33 +615,39 @@ export default function WorkspacePage() {
       if (sessionId !== activeSessionId) return
       const asset = payload.asset
       let nextTab: AssetTab | null = null
+      let highlightTab: AssetTab | null = null
       let label = '项目资产'
       void queryClient.invalidateQueries({
         queryKey: sessionDetailKey(sessionId),
       })
       if (asset === 'chapters') {
         void queryClient.invalidateQueries({ queryKey: ['chapters', sessionId] })
-        nextTab = 'chapters'
+        highlightTab = 'overview'
         label = '章节'
       } else if (asset === 'book_index') {
         void queryClient.invalidateQueries({ queryKey: ['book-index', sessionId] })
-        nextTab = 'index'
+        highlightTab = 'characters'
         label = '剧情索引'
       } else if (asset === 'script_yaml') {
         void queryClient.invalidateQueries({
           queryKey: ['script-versions', sessionId],
         })
-        nextTab = payload.validation_status === 'accepted' ? 'yaml' : 'validation'
+        nextTab = payload.validation_status === 'accepted' ? 'script' : 'validation'
+        highlightTab = nextTab
         label = payload.validation_status === 'accepted' ? '剧本' : '校验报告'
       } else if (asset === 'project') {
         void queryClient.invalidateQueries({ queryKey: sessionsKey })
       }
+      if (highlightTab) {
+        setAssetHighlights((prev) => ({ ...prev, [highlightTab]: true }))
+      }
       if (nextTab) {
-        setAssetHighlights((prev) => ({ ...prev, [nextTab]: true }))
         setActiveAssetTab(nextTab)
+      }
+      if (highlightTab) {
         notification.success({
           message: `${label}已更新`,
-          description: '右侧项目资产已刷新。',
+          description: '中间剧本工作区已刷新。',
           placement: 'topRight',
           duration: 2.5,
         })
@@ -501,8 +685,8 @@ export default function WorkspacePage() {
     ],
   )
 
-  const headerTitle = sessionDetail?.session.title ?? 'ScriptWeaver'
-  const headerSubtitle = (() => {
+  const statusBarBrand = 'ScriptWeaver'
+  const statusBarTip = (() => {
     switch (projectStatus) {
       case 'uploading':
         return '正在识别项目并切分章节…'
@@ -528,28 +712,60 @@ export default function WorkspacePage() {
     }
   })()
 
-  const panels = {
-    chapters: (
-      <ChaptersAsset
-        chapters={chaptersQuery.data?.chapters ?? []}
-        loading={chaptersQuery.isLoading}
+  const chapterList = chaptersQuery.data?.chapters ?? []
+  const selectedChapter =
+    selectedChapterId != null
+      ? (chapterList.find((c) => c.id === selectedChapterId) ?? null)
+      : null
+
+  const panels: Record<AssetTab, ReactNode> = {
+    overview: (
+      <OverviewAsset
+        loading={chaptersQuery.isLoading || bookIndexQuery.isLoading}
+        yaml={versionDetailQuery.data?.script_yaml ?? ''}
+        chapters={chapterList}
+        bookIndex={bookIndexQuery.data ?? null}
+        versions={versions}
+        validation={sessionEvents.latestValidation}
       />
     ),
-    index: (
-      <BookIndexAsset
-        data={bookIndexQuery.data ?? null}
-        loading={bookIndexQuery.isLoading}
-        error={Boolean(bookIndexQuery.error)}
-      />
-    ),
-    yaml: (
+    script: (
       <ScriptYamlAsset
+        sessionId={activeSessionId}
         yaml={versionDetailQuery.data?.script_yaml ?? ''}
         loading={versionDetailQuery.isLoading}
         version={versionDetailQuery.data?.version ?? null}
         validationReport={
           sessionEvents.latestValidation?.validation_report ?? null
         }
+        resetKey={scriptDiscardKey}
+        onDraftStateChange={handleScriptDraftStateChange}
+        onSaveScriptYaml={handleSaveScriptYaml}
+      />
+    ),
+    chapter: (
+      <ChapterDetailAsset
+        chapter={selectedChapter}
+        loading={chaptersQuery.isLoading}
+        bookIndex={bookIndexQuery.data ?? null}
+      />
+    ),
+    characters: (
+      <CharactersAsset
+        data={bookIndexQuery.data ?? null}
+        loading={bookIndexQuery.isLoading}
+      />
+    ),
+    locations: (
+      <LocationsAsset
+        data={bookIndexQuery.data ?? null}
+        loading={bookIndexQuery.isLoading}
+      />
+    ),
+    events: (
+      <EventsAsset
+        data={bookIndexQuery.data ?? null}
+        loading={bookIndexQuery.isLoading}
       />
     ),
     validation: <ValidationAsset validation={sessionEvents.latestValidation} />,
@@ -560,7 +776,7 @@ export default function WorkspacePage() {
         loading={versionsQuery.isLoading}
         onSelectVersion={(id) => {
           setSelectedVersionId(id)
-          setActiveAssetTab('yaml')
+          setActiveAssetTab('script')
         }}
       />
     ),
@@ -576,18 +792,25 @@ export default function WorkspacePage() {
     sessionCount: sessions.length,
     archivedCount: archivedSessions.length,
   }
+  const workbenchMeta = getWorkbenchMeta(activeAssetTab, {
+    selectedChapter: selectedChapter
+      ? { order: selectedChapter.order_index + 1, title: selectedChapter.title }
+      : null,
+  })
 
   return (
-    <AppShell
-      header={
+    <>
+      <AppShell
+      statusBar={
         <>
-          <WorkspaceHeader
-            title={headerTitle}
-            subtitle={headerSubtitle}
+          <WorkspaceStatusBar
+            brand={statusBarBrand}
+            tip={statusBarTip}
             projectStatus={projectStatus}
             runStatus={runStatus}
             isStreaming={isStreaming}
             modelUsage={sessionEvents.modelUsage}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
           <WorkspaceSettingsModal
             open={settingsOpen}
@@ -608,35 +831,87 @@ export default function WorkspacePage() {
           onCreate={() => void handleNewSession()}
           collapsed={leftRailCollapsed}
           onToggleCollapsed={() => setLeftRailCollapsed(!leftRailCollapsed)}
-          onOpenSettings={() => setSettingsOpen(true)}
         >
-          <ConversationsPanel
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelect={handleSelectSession}
-            onArchive={(sessionId) => void handleArchiveSession(sessionId)}
+          <Tabs
+            className="sw-rail-tabs"
+            size="small"
+            items={[
+              {
+                key: 'structure',
+                label: '结构',
+                children: (
+                  <ProjectStructurePanel
+                    hasProject={hasProject}
+                    chapters={chaptersQuery.data?.chapters ?? []}
+                    chaptersLoading={chaptersQuery.isLoading}
+                    bookIndex={bookIndexQuery.data ?? null}
+                    bookIndexLoading={bookIndexQuery.isLoading}
+                    versions={versions}
+                    activeTab={activeAssetTab}
+                    selectedChapterId={selectedChapterId}
+                    highlightedTabs={assetHighlights}
+                    onSelectTab={handleSelectAssetTab}
+                  />
+                ),
+              },
+              {
+                key: 'sessions',
+                label: '会话',
+                children: (
+                  <ConversationsPanel
+                    sessions={sessions}
+                    activeSessionId={activeSessionId}
+                    onSelect={handleSelectSession}
+                    onArchive={(sessionId) => void handleArchiveSession(sessionId)}
+                  />
+                ),
+              },
+            ]}
           />
         </LeftRail>
       }
+      rightPaneLabel="AI 对话侧栏"
       rightInspector={
-        <RightInspector projectId={projectId}>
-          {hasProject ? (
-            <AssetTabs
-              activeTab={activeAssetTab}
-              onTabChange={handleSelectAssetTab}
-              panels={panels}
-              highlightedTabs={assetHighlights}
-            />
+        <section className="sw-chat-panel" aria-label="AI 对话与修改指令">
+          <header className="sw-chat-panel-head">
+            <div>
+              <div className="sw-chat-panel-title">AI 对话</div>
+              <div className="sw-chat-panel-subtitle">
+                用自然语言继续调整剧本，执行细节默认收起。
+              </div>
+            </div>
+          </header>
+          {showEmptyState ? (
+            <div className="sw-chat-empty" role="region" aria-label="空对话提示">
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="先上传小说 TXT，或直接描述你想改编成什么风格。"
+              />
+            </div>
           ) : (
-            <AssetGuide projectStatus={projectStatus} />
+            <ChatTimeline items={bubbleItems} />
           )}
-        </RightInspector>
+          <LiveToolStream sessionId={activeSessionId} />
+          <ChatComposer
+            message={message}
+            onMessageChange={setMessage}
+            onSubmit={(value) => void handleSend(value)}
+            isStreaming={isStreaming}
+            disabled={false}
+            attachmentOpen={attachmentOpen}
+            onToggleAttachment={() => setAttachmentOpen(!attachmentOpen)}
+            sourceText={sourceText}
+            sourceFileName={sourceFileName}
+            onSourceTextChange={handleSourceTextChange}
+            onSourceClear={handleSourceClear}
+          />
+        </section>
       }
       leftRailCollapsed={leftRailCollapsed}
       rightInspectorWidth={rightInspectorWidth}
       onRightInspectorWidthChange={setRightInspectorWidth}
     >
-      <div className="sw-workspace-main">
+      <div className="sw-workbench-main">
         {errorMessage ? (
           <Alert
             type="error"
@@ -647,34 +922,54 @@ export default function WorkspacePage() {
             className="sw-workspace-error"
           />
         ) : null}
-        {showEmptyState ? (
-          <div className="sw-workspace-empty" role="region" aria-label="空状态欢迎区">
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={
-                <span>
-                  上传一段小说 TXT，或者直接发一条消息，让 Agent 开始改编为短剧。
-                </span>
-              }
-            />
-          </div>
+        {hasProject ? (
+          <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">
+            <header className="sw-workbench-document-head">
+              <div>
+                <div className="sw-workbench-document-title">{workbenchMeta.title}</div>
+                <div className="sw-workbench-document-subtitle">
+                  {workbenchMeta.subtitle}
+                </div>
+              </div>
+            </header>
+            <div className="sw-workbench-document-body">
+              {panels[activeAssetTab]}
+            </div>
+          </section>
         ) : (
-          <ChatTimeline items={bubbleItems} />
+          <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">
+            <AssetGuide projectStatus={projectStatus} />
+          </section>
         )}
-        <ChatComposer
-          message={message}
-          onMessageChange={setMessage}
-          onSubmit={(value) => void handleSend(value)}
-          isStreaming={isStreaming}
-          disabled={false}
-          attachmentOpen={attachmentOpen}
-          onToggleAttachment={() => setAttachmentOpen(!attachmentOpen)}
-          sourceText={sourceText}
-          sourceFileName={sourceFileName}
-          onSourceTextChange={handleSourceTextChange}
-          onSourceClear={handleSourceClear}
-        />
       </div>
-    </AppShell>
+      </AppShell>
+      <Modal
+        title="你有未保存的剧本修改"
+        open={Boolean(pendingDirtySend)}
+        onCancel={() => setPendingDirtySend(null)}
+        footer={
+          <Space>
+            <Button onClick={() => setPendingDirtySend(null)}>取消</Button>
+            <Button
+              disabled={isStreaming}
+              onClick={() => void handleDiscardDirtyAndSend()}
+            >
+              丢弃后发送
+            </Button>
+            <Button
+              type="primary"
+              loading={scriptSave.isPending}
+              disabled={isStreaming}
+              onClick={() => void handleSaveDirtyAndSend()}
+            >
+              保存并发送
+            </Button>
+          </Space>
+        }
+      >
+        继续发送会让 Agent 读取当前已保存版本。建议先保存可视化编辑器里的改动，
+        再让 AI 基于新剧本继续修改。
+      </Modal>
+    </>
   )
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import type { ChatSession, ChatSessionDetail } from '../../types'
+import type { ChatSession, ChatSessionDetail, ScriptUserEditRequest } from '../../types'
 
 export const sessionsKey = ['chat-sessions'] as const
 export const archivedSessionsKey = ['chat-sessions', 'archived'] as const
@@ -116,6 +116,31 @@ export function useScriptVersionDetail(
     queryKey: ['script-version-detail', sessionId, versionId],
     queryFn: () => api.getVersion(sessionId ?? '', versionId ?? ''),
     enabled: Boolean(sessionId) && Boolean(versionId) && enabled,
+  })
+}
+
+export function useSaveScriptYaml() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      sessionId,
+      payload,
+    }: {
+      sessionId: string
+      payload: ScriptUserEditRequest
+    }) => api.saveScriptYaml(sessionId, payload),
+    onSuccess: (_response, variables) => {
+      void client.invalidateQueries({ queryKey: sessionsKey })
+      void client.invalidateQueries({
+        queryKey: sessionDetailKey(variables.sessionId),
+      })
+      void client.invalidateQueries({
+        queryKey: ['script-versions', variables.sessionId],
+      })
+      void client.invalidateQueries({
+        queryKey: ['script-version-detail', variables.sessionId],
+      })
+    },
   })
 }
 

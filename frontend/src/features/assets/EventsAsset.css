@@ -1,0 +1,28 @@
+.sw-events-asset {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.sw-events-chapter-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sw-events-chapter-count {
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.sw-events-timeline {
+  padding-left: 4px;
+}
+
+.sw-events-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}

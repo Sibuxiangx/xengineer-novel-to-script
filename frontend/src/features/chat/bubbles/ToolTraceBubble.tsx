@@ -59,6 +59,8 @@ function statusBadge(tool: ToolCallEvent) {
 }
 
 export function ToolTraceBubble({ tool }: ToolTraceBubbleProps) {
+  const showDetailsInline = tool.status === 'running' || tool.status === 'failed'
+
   return (
     <Card
       size="small"
@@ -81,7 +83,16 @@ export function ToolTraceBubble({ tool }: ToolTraceBubbleProps) {
     >
       <Space orientation="vertical" size={10} style={{ width: '100%' }}>
         <Text type="secondary">{summarize(tool)}</Text>
-        <ToolPayloadPreview tool={tool} />
+        {showDetailsInline ? (
+          <ToolPayloadPreview tool={tool} />
+        ) : (
+          <details className="sw-tool-details">
+            <summary>执行细节</summary>
+            <div className="sw-tool-details-body">
+              <ToolPayloadPreview tool={tool} />
+            </div>
+          </details>
+        )}
       </Space>
     </Card>
   )

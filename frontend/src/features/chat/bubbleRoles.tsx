@@ -1,18 +1,14 @@
 import type { BubbleProps } from '@ant-design/x'
-import { Avatar } from 'antd'
-import {
-  BranchesOutlined,
-  RobotOutlined,
-  SafetyCertificateOutlined,
-  UserOutlined,
-} from '@ant-design/icons'
+
+const transparentContent: BubbleProps['styles'] = {
+  content: { background: 'none', boxShadow: 'none', border: 'none', padding: 0 },
+}
 
 export const bubbleRoles: Record<string, Partial<BubbleProps>> = {
   user: {
     placement: 'end',
     variant: 'filled',
     shape: 'round',
-    avatar: <Avatar icon={<UserOutlined aria-hidden />} />,
     rootClassName: 'sw-user-bubble',
     styles: {
       content: {
@@ -27,32 +23,35 @@ export const bubbleRoles: Record<string, Partial<BubbleProps>> = {
     placement: 'start',
     variant: 'filled',
     shape: 'round',
-    avatar: <Avatar icon={<RobotOutlined aria-hidden />} className="sw-brand-avatar" />,
   },
   tool: {
     placement: 'start',
     variant: 'borderless',
-    avatar: <Avatar icon={<BranchesOutlined aria-hidden />} />,
+    rootClassName: 'sw-bubble-tool',
+    styles: transparentContent,
   },
   confirm: {
     placement: 'start',
-    variant: 'shadow',
-    shape: 'default',
-    avatar: <Avatar icon={<SafetyCertificateOutlined aria-hidden />} />,
+    variant: 'borderless',
+    rootClassName: 'sw-bubble-confirm',
+    styles: transparentContent,
   },
   validation: {
     placement: 'start',
-    variant: 'shadow',
-    shape: 'default',
-    avatar: <Avatar icon={<SafetyCertificateOutlined aria-hidden />} />,
+    variant: 'borderless',
+    rootClassName: 'sw-bubble-validation',
+    styles: transparentContent,
   },
   progress: {
     placement: 'start',
     variant: 'borderless',
-    avatar: <Avatar icon={<BranchesOutlined aria-hidden />} />,
+    rootClassName: 'sw-bubble-progress',
+    styles: transparentContent,
   },
   system: {
     placement: 'start',
     variant: 'borderless',
+    rootClassName: 'sw-bubble-system',
+    styles: transparentContent,
   },
 }

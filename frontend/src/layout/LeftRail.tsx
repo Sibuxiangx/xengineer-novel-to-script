@@ -1,4 +1,4 @@
-import { Avatar, Button, Divider, Spin, Tooltip, Typography } from 'antd'
+import { Avatar, Button, Spin, Tooltip, Typography } from 'antd'
 import {
   ApartmentOutlined,
   MenuFoldOutlined,
@@ -35,16 +35,18 @@ export function LeftRail({
       aria-label="改编会话列表"
     >
       <header className="sw-rail-brand">
-        <Avatar size={42} icon={<ApartmentOutlined aria-hidden />} className="sw-brand-avatar" />
         {!collapsed ? (
-          <div className="sw-rail-brand-meta">
-            <Title level={4} className="sw-rail-title">
-              ScriptWeaver
-            </Title>
-            <Text type="secondary" className="sw-rail-subtitle">
-              把小说改编成可拍摄短剧
-            </Text>
-          </div>
+          <>
+            <Avatar size={42} icon={<ApartmentOutlined aria-hidden />} className="sw-brand-avatar" />
+            <div className="sw-rail-brand-meta">
+              <Title level={4} className="sw-rail-title">
+                ScriptWeaver
+              </Title>
+              <Text type="secondary" className="sw-rail-subtitle">
+                把小说改编成可拍摄短剧
+              </Text>
+            </div>
+          </>
         ) : null}
         {onToggleCollapsed ? (
           <Tooltip title={collapsed ? '展开会话栏' : '折叠会话栏'} placement="right">
@@ -73,12 +75,6 @@ export function LeftRail({
           {collapsed ? null : '新建改编'}
         </Button>
       </Tooltip>
-
-      {!collapsed ? (
-        <Divider plain titlePlacement="start">
-          <Text type="secondary">会话</Text>
-        </Divider>
-      ) : null}
 
       {!collapsed ? (
         loading ? (

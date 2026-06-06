@@ -1,0 +1,104 @@
+.sw-status-bar {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(140px, auto) minmax(0, 1fr) minmax(220px, auto);
+  align-items: center;
+  gap: 16px;
+  height: 32px;
+  padding: 0 16px;
+  border-top: 1px solid var(--sw-color-border);
+  background: var(--sw-color-header);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+  line-height: 1;
+  z-index: 5;
+}
+
+.sw-status-bar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--sw-color-text);
+}
+
+.sw-status-bar-brand-icon {
+  font-size: 14px;
+  color: var(--sw-color-primary);
+}
+
+.sw-status-bar-brand-name {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.sw-status-bar-tip {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+}
+
+.sw-status-bar-tip-text {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.sw-status-bar-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.sw-status-bar-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-inline-end: 0;
+  padding: 0 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.sw-status-bar-live .ant-badge-status-text {
+  font-size: 12px;
+  color: var(--sw-color-text-muted);
+}
+
+.sw-status-bar-usage.ant-btn {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.sw-status-bar-settings.ant-btn {
+  height: 22px;
+  width: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .sw-status-bar {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  .sw-status-bar-tip,
+  .sw-status-bar-actions {
+    justify-content: flex-start;
+  }
+}

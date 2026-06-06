@@ -17,11 +17,39 @@
 
 .sw-yaml-editor {
   flex: 1 1 auto;
-  min-height: 320px;
+  min-height: 520px;
   border: 1px solid var(--sw-color-border);
   border-radius: 12px;
   overflow: hidden;
   background: var(--sw-color-surface);
+}
+
+.sw-yaml-empty {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 420px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.sw-yaml-empty-title {
+  margin: 0 !important;
+}
+
+.sw-yaml-empty-copy {
+  max-width: 360px;
+  margin: 0 !important;
+  text-align: center;
+}
+
+.sw-yaml-warning-strip {
+  padding: 8px 12px;
+}
+
+.sw-yaml-warning-strip .ant-alert-message {
+  color: var(--sw-color-text);
+  font-size: 13px;
 }
 
 .sw-monaco-error-line {
@@ -40,4 +68,76 @@
 .sw-monaco-warning-glyph::before {
   content: "▲";
   color: var(--sw-color-warning);
+}
+
+.sw-visual-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 4px;
+}
+
+.sw-visual-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sw-color-primary) 8%, transparent);
+  color: var(--sw-color-primary);
+  font-size: 12px;
+}
+
+.sw-visual-editor .ant-card {
+  border: 1px solid var(--sw-color-border);
+  background: color-mix(in srgb, var(--sw-color-surface) 96%, var(--sw-color-layout));
+}
+
+.sw-visual-form .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.sw-visual-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--sw-color-border);
+  border-radius: 12px;
+  background: var(--sw-color-surface);
+}
+
+.sw-visual-section + .sw-visual-section {
+  margin-top: 12px;
+}
+
+.sw-visual-form-half {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.sw-event-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sw-event-card {
+  background: var(--sw-color-soft) !important;
+}
+
+.sw-event-card .ant-card-body {
+  display: grid;
+  gap: 8px;
+}
+
+.sw-event-type {
+  flex: 0 0 140px;
+}
+
+.sw-event-character {
+  flex: 1 1 180px;
+  min-width: 160px;
 }

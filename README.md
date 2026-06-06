@@ -89,8 +89,8 @@ uv run fastapi dev app/main.py
 1. `POST /chat/sessions` 创建对话会话，用于左侧项目区。
 2. `GET /chat/sessions` 获取会话列表。
 3. `GET /chat/sessions/{session_id}` 获取消息、待确认项和最近剧本版本。
-4. `POST /chat/sessions/{session_id}/runs/stream` 通过 SSE 发送用户消息。上传或粘贴 TXT 后，后端会依次推导项目名、创建项目、推导分章规则，并返回 `tool.confirm.required` 等待用户确认。
-5. `POST /chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 通过 SSE 处理确认。确认分章后，后端会自动导入章节、生成 `book_index.json`、生成并校验 `script.yaml`，并通过 `asset.updated` 通知前端刷新右侧资产栏。
+4. `POST /chat/sessions/{session_id}/runs/stream` 通过 SSE 发送用户消息。上传或粘贴 TXT 时，第一条消息可以同时包含改编要求；后端会立刻返回一条确认收到的 assistant 消息，然后依次推导项目名、创建项目、推导分章规则，并返回 `tool.confirm.required` 等待用户确认。
+5. `POST /chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 通过 SSE 处理确认。确认分章后，后端会自动导入章节、生成 `book_index.json`、生成并校验 `script.yaml`，并通过 `asset.updated` 通知前端刷新资产区。
 6. `GET /chat/sessions/{session_id}/assets/chapters` 读取会话项目的章节资产。
 7. `GET /chat/sessions/{session_id}/assets/book-index` 读取会话项目的 `book_index.json`。
 8. `GET /chat/sessions/{session_id}/assets/scripts/versions` 读取会话项目的 YAML 版本列表，包括 accepted versions 和 rejected drafts。
@@ -135,6 +135,12 @@ AI 能力说明：
 - 生成、编辑、修复都会返回校验报告，便于前端展示错误、修复建议与可量化指标。
 - 局部编辑使用结构化 YAML patch operations，例如 `patch_project`、`upsert_character`、`upsert_location`、`insert_scene`、`delete_scene`、`reorder_scenes`、`insert_event`、`replace_event`、`reorder_events`、`patch_adaptation_notes`。未知 operation、无变化 patch 或当前 Schema 不支持的 operation 会显式失败，不会保存空成功版本。
 
+生成后的自由对话规则：
+
+- 用户明确要求修改剧本时，Agent 会调用 `edit_script_yaml` 生成结构化编辑操作。
+- 用户询问原文剧情、人物动机、伏笔、章节摘要、当前剧本与原文差异或改编依据时，Agent 会调用 `answer_novel_question`，把小说章节、`book_index.json` 和当前 `script.yaml` 当作知识库回答，不会改动剧本版本。
+- 首轮上传 TXT 时附带的改编要求会保存为项目 artifact，并进入后续 `book_index.json` 和 `script.yaml` 生成上下文。
+
 YAML Schema 文档：
 
 - 设计文档：[`docs/screenplay-yaml-schema.md`](docs/screenplay-yaml-schema.md)
@@ -174,11 +180,12 @@ pnpm dev
 前端默认读取 `VITE_API_BASE_URL=http://127.0.0.1:8000`。当前界面主流程：
 
 1. 打开产品后，左侧显示结构/会话导航，中间显示剧本工作区，右侧显示 AI 对话入口。
-2. 用户上传或粘贴 TXT，前端通过 POST SSE 调用 `/chat/sessions/{session_id}/runs/stream`。
+2. 用户上传或粘贴 TXT，也可以在第一条消息里附带改编要求；前端通过 POST SSE 调用 `/chat/sessions/{session_id}/runs/stream`。
 3. 对话流通过 Ant Design X `Bubble.List` 展示 Agent 消息、分章确认点和默认折叠的工具执行细节。
 4. 用户在分章确认面板中查看预览、可编辑标题正则，并确认继续。
 5. 确认后前端通过 `/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 继续接收导入章节、构建索引、生成 YAML 与验证结果。
 6. 中间剧本工作区展示章节、`book_index.json`、剧本可视化表单、YAML 源码、验证报告和版本记录；切换历史版本后，后续局部编辑会基于当前选中版本生成新的版本快照。
+7. 剧本生成后，用户可以继续用自然语言要求修改剧本，也可以把小说当知识库询问剧情、人物、伏笔和改编依据。
 
 前端质量检查：
 

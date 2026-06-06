@@ -40,6 +40,7 @@ class BookIndexService:
         self,
         project_id: str,
         force_rebuild: bool,
+        adaptation_requirements: str | None = None,
         stream_callback: StreamDeltaCallback | None = None,
     ) -> BookIndexResponse:
         project = await self.projects.get(project_id)
@@ -55,6 +56,9 @@ class BookIndexService:
         packed_prompt = self._build_prompt(
             project_title=project.title,
             project_id=project_id,
+            adaptation_requirements=(
+                adaptation_requirements or self.store.read_adaptation_requirements(project_id)
+            ),
             chapters=[
                 {
                     "id": chapter.id,
@@ -103,9 +107,11 @@ class BookIndexService:
         project_title: str,
         project_id: str,
         chapters: list[dict],
+        adaptation_requirements: str | None = None,
     ) -> PackedPrompt:
         return self.context_prompts.build_book_index_prompt(
             project_title=project_title,
             project_id=project_id,
             chapters=chapters,
+            adaptation_requirements=adaptation_requirements,
         )

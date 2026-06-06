@@ -161,6 +161,17 @@ class ScreenplayAgent:
             stream_callback=stream_callback,
         )
 
+    async def answer_novel_question(
+        self,
+        prompt: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> str:
+        return await self._run_text(
+            prompt=prompt,
+            task_prompt_name="answer_novel_question.zh.md",
+            stream_callback=stream_callback,
+        )
+
     async def run_source_ingestion_tools(self, prompt: str, deps: AgentDeps) -> str:
         """Run the chat tool agent for source ingestion and chapter-split confirmation."""
 
@@ -232,6 +243,52 @@ class ScreenplayAgent:
                         output = cast(OutputT, result.output)
             if output is None:
                 raise AgentExecutionError("Model stream finished without a final result.")
+            return output
+        except AgentConfigurationError:
+            raise
+        except AgentExecutionError:
+            raise
+        except Exception as exc:  # pragma: no cover - provider failure path
+            raise AgentExecutionError(str(exc)) from exc
+
+    async def _run_text(
+        self,
+        prompt: str,
+        task_prompt_name: str,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> str:
+        try:
+            agent = self._get_agent()
+            if stream_callback is None:
+                result = await agent.run(
+                    prompt,
+                    output_type=str,
+                    instructions=self.load_prompt(task_prompt_name),
+                    deps=self._deps,
+                )
+                return cast(str, result.output)
+
+            output: str | None = None
+            async with agent.run_stream_events(
+                prompt,
+                output_type=str,
+                instructions=self.load_prompt(task_prompt_name),
+                deps=self._deps,
+            ) as stream:
+                async for event in stream:
+                    delta = self._stream_delta_payload(event)
+                    if delta is not None:
+                        await stream_callback(
+                            {
+                                "task": task_prompt_name.removesuffix(".zh.md"),
+                                **delta,
+                            }
+                        )
+                    if getattr(event, "event_kind", None) == "agent_run_result":
+                        result = cast(Any, event).result
+                        output = cast(str, result.output)
+            if output is None:
+                raise AgentExecutionError("Model stream finished without a final text result.")
             return output
         except AgentConfigurationError:
             raise
@@ -352,6 +409,24 @@ class ScreenplayAgent:
             if project_id is None:
                 raise RuntimeError("当前会话还没有可编辑的项目。")
             result = await toolbox.edit_script_yaml(project_id, instruction)
+            return result.model_dump(mode="json")
+
+        @agent.tool(
+            name="answer_novel_question",
+            description=(
+                "把小说原文、剧情索引和当前剧本当作知识库，回答用户关于剧情、人物、"
+                "地点、伏笔、改编依据或当前剧本内容的问题。不会修改剧本。"
+            ),
+        )
+        async def answer_novel_question(
+            ctx: RunContext[AgentDeps],
+            question: str,
+        ) -> dict[str, Any]:
+            toolbox = self._require_toolbox(ctx)
+            project_id = ctx.deps.project_id or toolbox.project_id
+            if project_id is None:
+                raise RuntimeError("当前会话还没有可问答的项目。")
+            result = await toolbox.answer_novel_question(project_id, question)
             return result.model_dump(mode="json")
 
         @agent.tool(

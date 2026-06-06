@@ -53,6 +53,11 @@ def extract_chapter_id(prompt: str) -> str:
 
 
 class FakeChatAgent:
+    def __init__(self) -> None:
+        self.last_book_index_prompt = ""
+        self.last_script_prompt = ""
+        self.last_answer_prompt = ""
+
     async def run_source_ingestion_tools(self, prompt: str, deps: Any) -> str:
         assert "工具编排要求" in prompt
         assert deps.toolbox is not None
@@ -110,6 +115,7 @@ class FakeChatAgent:
         prompt: str,
         stream_callback: Any = None,
     ) -> BookIndex:
+        self.last_book_index_prompt = prompt
         chapter_id = extract_chapter_id(prompt)
         return BookIndex(
             schema_version="1.0",
@@ -147,6 +153,7 @@ class FakeChatAgent:
         prompt: str,
         stream_callback: Any = None,
     ) -> ScreenplayYaml:
+        self.last_script_prompt = prompt
         chapter_id = extract_chapter_id(prompt)
         return ScreenplayYaml(
             schema_version="1.0",
@@ -210,6 +217,14 @@ class FakeChatAgent:
             ],
         )
 
+    async def answer_novel_question(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> str:
+        self.last_answer_prompt = prompt
+        return "林栩去剧场是因为旧信把线索指向那里。"
+
     async def repair_script(
         self,
         prompt: str,
@@ -226,6 +241,7 @@ class FakeChatAgent:
 
 class RejectedScriptFakeChatAgent(FakeChatAgent):
     def __init__(self) -> None:
+        super().__init__()
         self.repair_count = 0
 
     async def generate_script(
@@ -258,6 +274,7 @@ class RejectedScriptFakeChatAgent(FakeChatAgent):
 
 class TargetedRepairFakeChatAgent(FakeChatAgent):
     def __init__(self) -> None:
+        super().__init__()
         self.repair_count = 0
         self.last_repair_prompt = ""
 
@@ -302,9 +319,23 @@ class SlowSourceIngestionFakeChatAgent(FakeChatAgent):
         return await super().run_source_ingestion_tools(prompt, deps)
 
 
+class QuestionAnswerFakeChatAgent(FakeChatAgent):
+    async def run_chat_instruction_tools(self, prompt: str, deps: Any) -> str:
+        assert "answer_novel_question" in prompt
+        assert deps.toolbox is not None
+        project_id = deps.project_id or deps.toolbox.project_id
+        assert project_id is not None
+        result = await deps.toolbox.answer_novel_question(
+            project_id,
+            "林栩为什么去剧场？",
+        )
+        return result.answer
+
+
 def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -> None:
     content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
-    app.dependency_overrides[get_chat_agent] = lambda: FakeChatAgent()
+    fake_agent = FakeChatAgent()
+    app.dependency_overrides[get_chat_agent] = lambda: fake_agent
     try:
         with TestClient(app) as client:
             session_response = client.post("/chat/sessions", json={})
@@ -315,7 +346,7 @@ def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -
                 "POST",
                 f"/chat/sessions/{session_id}/runs/stream",
                 json={
-                    "message": "我上传了一篇小说，请开始改编。",
+                    "message": "我上传了一篇小说，请改成女性向悬疑，弱化爱情线。",
                     "source_file_name": "long_chaptered.txt",
                     "source_text": content,
                     "screenplay_format": "short_drama",
@@ -325,6 +356,10 @@ def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -
                 events = parse_sse_events(response.read().decode())
 
             event_names = [event[0] for event in events]
+            assert event_names[:2] == ["run.started", "message.created"]
+            ack_event = events[1][1]
+            assert ack_event["role"] == "assistant"
+            assert "改编要求" in ack_event["content"]
             assert "tool.call.started" in event_names
             assert "tool.confirm.required" in event_names
             assert "run.waiting_confirmation" in event_names
@@ -334,10 +369,19 @@ def test_chat_upload_stream_creates_project_and_pending_chapter_confirmation() -
                 data for name, data in events if name == "tool.confirm.required"
             )
             assert confirmation_event["kind"] == "chapter_split"
+            assert (
+                confirmation_event["payload"]["adaptation_requirements"]
+                == "我上传了一篇小说，请改成女性向悬疑，弱化爱情线。"
+            )
             assert confirmation_event["payload"]["preview"]["chapter_count"] == 5
             assert confirmation_event["payload"]["rule"]["strategy"] == "line_regex"
 
             detail = client.get(f"/chat/sessions/{session_id}").json()
+            timeline = detail["timeline"]
+            assert timeline[0]["kind"] == "message"
+            assert timeline[0]["message"]["role"] == "user"
+            assert timeline[1]["kind"] == "message"
+            assert timeline[1]["message"]["metadata"]["kind"] == "source_ingestion_ack"
             assert detail["session"]["title"] == "雾港来信改编"
             assert detail["session"]["project_id"]
             assert detail["session"]["pending_confirmation_count"] == 1
@@ -384,7 +428,8 @@ def test_chat_stream_emits_heartbeat_while_agent_task_is_running() -> None:
 
 def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> None:
     content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
-    app.dependency_overrides[get_chat_agent] = lambda: FakeChatAgent()
+    fake_agent = FakeChatAgent()
+    app.dependency_overrides[get_chat_agent] = lambda: fake_agent
     try:
         with TestClient(app) as client:
             session_id = client.post("/chat/sessions", json={}).json()["id"]
@@ -392,7 +437,7 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
                 "POST",
                 f"/chat/sessions/{session_id}/runs/stream",
                 json={
-                    "message": "上传小说。",
+                    "message": "上传小说，改编时请强化悬疑感，弱化爱情线。",
                     "source_file_name": "long_chaptered.txt",
                     "source_text": content,
                 },
@@ -419,6 +464,8 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             event_names = [event[0] for event in confirm_events]
             assert event_names.count("model.usage.estimated") >= 2
             assert "run.progress" in event_names
+            assert "强化悬疑感，弱化爱情线" in fake_agent.last_book_index_prompt
+            assert "强化悬疑感，弱化爱情线" in fake_agent.last_script_prompt
 
             completed_tool = next(
                 data
@@ -688,6 +735,49 @@ def test_save_chat_session_script_yaml_accepts_valid_user_edit() -> None:
             assert "用户手动调整后的一句话故事" in current["script_yaml"]
             assert current["version"]["created_by"] == "user"
             assert "可视化编辑器" in current["version"]["reason"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_question_after_script_generation_uses_novel_qa_tool() -> None:
+    fake_agent = QuestionAnswerFakeChatAgent()
+    app.dependency_overrides[get_chat_agent] = lambda: fake_agent
+    try:
+        with TestClient(app) as client:
+            session_id, version_id, _ = _setup_session_with_accepted_script(client)
+
+            versions_before = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions"
+            ).json()["versions"]
+
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/runs/stream",
+                json={"message": "林栩为什么去剧场？"},
+            ) as response:
+                assert response.status_code == 200
+                events = parse_sse_events(response.read().decode())
+
+            completed_qa_tool = next(
+                data
+                for name, data in events
+                if name == "tool.call.completed" and data["name"] == "answer_novel_question"
+            )
+            assert "旧信把线索指向那里" in completed_qa_tool["output"]["answer"]
+            assert "task.novel_qa" in fake_agent.last_answer_prompt
+            assert "林栩为什么去剧场？" in fake_agent.last_answer_prompt
+
+            detail = client.get(f"/chat/sessions/{session_id}").json()
+            assert detail["messages"][-1]["role"] == "assistant"
+            assert "旧信把线索指向那里" in detail["messages"][-1]["content"]
+
+            versions_after = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions"
+            ).json()["versions"]
+            assert [version["id"] for version in versions_after] == [
+                version["id"] for version in versions_before
+            ]
+            assert versions_after[-1]["id"] == version_id
     finally:
         app.dependency_overrides.clear()
 

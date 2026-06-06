@@ -48,7 +48,7 @@ describe('buildBubbleItems', () => {
               path: 'scenes[0]',
               message: 'missing field',
               repair_hint: null,
-              source: 'harness',
+              source: 'policy',
             },
           ],
           warnings: [],
@@ -57,7 +57,7 @@ describe('buildBubbleItems', () => {
       }),
       makeLive(SSE_EVENT_NAMES.runCompletedWithErrors, {
         run_id: 'r1',
-        message: 'failed harness',
+        message: 'validation failed',
         rejected_version_id: 'rv1',
         repair_attempt_count: 1,
       }),

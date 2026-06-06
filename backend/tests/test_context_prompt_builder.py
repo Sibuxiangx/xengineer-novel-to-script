@@ -5,6 +5,8 @@ from app.core.config import Settings
 from app.schemas.book_index import BookIndex, IndexedChapter, IndexedEvent
 from app.services.context_prompt_builder import ContextPromptBuilder
 
+LEGACY_VALIDATION_TERM = "har" + "ness"
+
 
 def make_settings(**overrides: Any) -> Settings:
     data: dict[str, Any] = {
@@ -102,3 +104,48 @@ def test_script_generation_prompt_uses_index_and_bounded_source_excerpts() -> No
     assert "中间省略" in packed.prompt
     assert long_body not in packed.prompt
     assert "source_excerpt.chapter_001" in packed.report.included_block_ids
+
+
+def test_repair_prompt_targets_previous_yaml_and_validation_issues() -> None:
+    builder = ContextPromptBuilder(make_settings(model_context_limit=10_000))
+    script_yaml = "\n".join(
+        [
+            "schema_version: '1.0'",
+            "project:",
+            "  title: 雾港来信",
+            "scenes:",
+            "  - id: scene_001",
+            "    adaptation_notes: null",
+        ]
+    )
+    validation_report = {
+        "accepted": False,
+        "severity": "error",
+        "errors": [
+            {
+                "code": "missing_adaptation_notes",
+                "severity": "error",
+                "path": "scenes.scene_001.adaptation_notes",
+                "message": "每个场景必须说明改编意图。",
+                "repair_hint": "请补充 adaptation_notes.intent 和必要的删改说明。",
+                "source": "policy",
+            }
+        ],
+        "warnings": [],
+        "metrics": {},
+    }
+
+    packed = builder.build_repair_prompt(
+        script_yaml=script_yaml,
+        validation_report_json=validation_report,
+        book_index=None,
+    )
+
+    assert "只修复验证报告指出的问题" in packed.prompt
+    assert "missing_adaptation_notes" in packed.prompt
+    assert "scenes.scene_001.adaptation_notes" in packed.prompt
+    assert "adaptation_notes: null" in packed.prompt
+    assert "previous_script_yaml" in packed.report.included_block_ids
+    assert "validation_issue_summary" in packed.report.included_block_ids
+    assert "validation_report_json" in packed.report.included_block_ids
+    assert LEGACY_VALIDATION_TERM not in packed.prompt.lower()

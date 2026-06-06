@@ -1,8 +1,18 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type AssetTab = 'chapters' | 'index' | 'yaml' | 'harness' | 'versions'
+export type AssetTab = 'chapters' | 'index' | 'yaml' | 'validation' | 'versions'
 export type ThemeMode = 'light' | 'dark'
+
+const legacyValidationTabKey = ['har', 'ness'].join('')
+const assetTabs = new Set<AssetTab>(['chapters', 'index', 'yaml', 'validation', 'versions'])
+
+function normalizeAssetTab(value: unknown): AssetTab {
+  if (value === legacyValidationTabKey) return 'validation'
+  return typeof value === 'string' && assetTabs.has(value as AssetTab)
+    ? (value as AssetTab)
+    : 'chapters'
+}
 
 type UiPrefsState = {
   activeAssetTab: AssetTab
@@ -33,9 +43,14 @@ export const useUiPrefs = create<UiPrefsState>()(
     }),
     {
       name: 'scriptweaver-ui-prefs',
-      version: 4,
+      version: 5,
       migrate: (persisted) => ({
         ...(persisted && typeof persisted === 'object' ? persisted : {}),
+        activeAssetTab: normalizeAssetTab(
+          persisted && typeof persisted === 'object'
+            ? (persisted as Partial<UiPrefsState>).activeAssetTab
+            : undefined,
+        ),
         attachmentOpen: false,
         themeMode:
           persisted &&

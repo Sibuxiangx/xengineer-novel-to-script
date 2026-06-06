@@ -34,7 +34,7 @@ const STEPS = [
     statesActive: ['generating'],
   },
   {
-    title: 'harness 校验',
+    title: '本地验证',
     description: '失败会自动修复，留痕 rejected draft',
     icon: <SafetyCertificateOutlined aria-hidden />,
     statesActive: ['repairing'],

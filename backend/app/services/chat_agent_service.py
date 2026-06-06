@@ -410,7 +410,7 @@ class ChatAgentService:
             yield event
         if toolbox.completed_with_errors:
             content = toolbox.last_validation_error_message or (
-                "操作已执行，但剧本 YAML 未通过 harness，当前结果已保存为 rejected draft。"
+                "操作已执行，但剧本 YAML 未通过验证，当前结果已保存为 rejected draft。"
             )
             assistant = await self.recorder.complete_run_with_errors(
                 run=run,
@@ -503,7 +503,7 @@ class ChatAgentService:
             yield event
         if toolbox.completed_with_errors:
             content = toolbox.last_validation_error_message or (
-                "分章已确认，剧情索引已生成，但剧本 YAML 未通过 harness，"
+                "分章已确认，剧情索引已生成，但剧本 YAML 未通过验证，"
                 "当前结果已保存为 rejected draft。"
             )
             assistant = await self.recorder.complete_run_with_errors(

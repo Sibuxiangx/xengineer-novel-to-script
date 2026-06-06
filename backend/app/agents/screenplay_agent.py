@@ -157,12 +157,12 @@ class ScreenplayAgent:
         return await self._run_structured(
             prompt=prompt,
             output_type=ScreenplayYaml,
-            task_prompt_name="repair_from_harness.zh.md",
+            task_prompt_name="repair_from_validation.zh.md",
             stream_callback=stream_callback,
         )
 
     async def run_source_ingestion_tools(self, prompt: str, deps: AgentDeps) -> str:
-        """Run the chat tool agent for source ingestion and chapter-split HITL."""
+        """Run the chat tool agent for source ingestion and chapter-split confirmation."""
 
         try:
             result = await self._get_tool_agent().run(
@@ -368,7 +368,7 @@ class ScreenplayAgent:
 
         @agent.tool(
             name="generate_script_yaml",
-            description="基于项目章节和 book_index.json 生成剧本 YAML，并运行 harness 校验。",
+            description="基于项目章节和 book_index.json 生成剧本 YAML，并运行本地验证。",
         )
         async def generate_script_yaml(
             ctx: RunContext[AgentDeps],

@@ -54,7 +54,7 @@ class ScriptVersionNotFoundError(Exception):
 
 
 class ScriptValidationRejectedError(Exception):
-    """Raised when a script cannot be saved because harness rejected it."""
+    """Raised when a script cannot be saved because validation rejected it."""
 
 
 class ScriptService:
@@ -169,7 +169,7 @@ class ScriptService:
                 project_id=project_id,
                 script_yaml=script_yaml,
                 created_by="agent",
-                reason=f"生成初版剧本 YAML 未通过 harness，已自动修复 {repair_attempt_count} 次",
+                reason=f"生成初版剧本 YAML 未通过验证，已自动修复 {repair_attempt_count} 次",
                 operation_count=repair_attempt_count,
                 validation_status=ValidationStatus.rejected,
                 validation_report=report.validation_report,
@@ -243,7 +243,7 @@ class ScriptService:
                 project_id=project_id,
                 script_yaml=patched_yaml,
                 created_by="agent",
-                reason=f"{instruction}（未通过 harness，已自动修复 {repair_attempt_count} 次）",
+                reason=f"{instruction}（未通过验证，已自动修复 {repair_attempt_count} 次）",
                 operation_count=len(plan.operations) + repair_attempt_count,
                 validation_status=ValidationStatus.rejected,
                 validation_report=report.validation_report,
@@ -295,7 +295,7 @@ class ScriptService:
                 project_id=project_id,
                 script_yaml=repaired_yaml,
                 created_by="agent",
-                reason=f"根据 harness 错误修复剧本 YAML（自动修复 {repair_attempt_count} 次）",
+                reason=f"根据验证问题修复剧本 YAML（自动修复 {repair_attempt_count} 次）",
                 operation_count=repair_attempt_count,
                 validation_status=ValidationStatus.accepted,
                 validation_report=report.validation_report,
@@ -307,7 +307,7 @@ class ScriptService:
                 script_yaml=repaired_yaml,
                 created_by="agent",
                 reason=(
-                    "根据 harness 错误修复剧本 YAML 后仍未通过"
+                    "根据验证问题修复剧本 YAML 后仍未通过"
                     f"（自动修复 {repair_attempt_count} 次）"
                 ),
                 operation_count=repair_attempt_count,
@@ -475,27 +475,15 @@ class ScriptService:
         book_index: BookIndex | None,
         stream_callback: StreamDeltaCallback | None = None,
     ) -> tuple[str, ScriptValidateResponse, int]:
-        repair_attempt_count = 0
-        current_yaml = script_yaml
-        current_report = report
-        while (
-            not current_report.validation_report.accepted
-            and repair_attempt_count < self.settings.script_repair_max_attempts
-        ):
-            repair_attempt_count += 1
-            screenplay = await self.agent.repair_script(
-                self._repair_prompt(
-                    current_yaml,
-                    current_report.validation_report.model_dump(mode="json"),
-                    book_index,
-                ).prompt,
-                stream_callback=self._phase_callback(
-                    stream_callback,
-                    f"repair_attempt_{repair_attempt_count}",
-                ),
+        current_yaml, current_report, repair_attempt_count, _ = (
+            await self._repair_validated_yaml_until_accepted(
+                project_id=project_id,
+                script_yaml=script_yaml,
+                report=report,
+                book_index=book_index,
+                stream_callback=stream_callback,
             )
-            current_yaml = self._dump_screenplay(screenplay)
-            current_report = await self.validate_script(project_id, current_yaml)
+        )
         return current_yaml, current_report, repair_attempt_count
 
     async def _repair_from_report_json(
@@ -506,14 +494,38 @@ class ScriptService:
         book_index: BookIndex | None,
         stream_callback: StreamDeltaCallback | None = None,
     ) -> tuple[str, ScriptValidateResponse, int, ContextPackingReport | None]:
+        _ = validation_report_json
+        report = await self.validate_script(project_id, script_yaml)
+        return await self._repair_validated_yaml_until_accepted(
+            project_id=project_id,
+            script_yaml=script_yaml,
+            report=report,
+            book_index=book_index,
+            stream_callback=stream_callback,
+        )
+
+    async def _repair_validated_yaml_until_accepted(
+        self,
+        project_id: str,
+        script_yaml: str,
+        report: ScriptValidateResponse,
+        book_index: BookIndex | None,
+        stream_callback: StreamDeltaCallback | None = None,
+    ) -> tuple[str, ScriptValidateResponse, int, ContextPackingReport | None]:
         repair_attempt_count = 0
         current_yaml = script_yaml
-        current_report_json = validation_report_json
-        current_report: ScriptValidateResponse | None = None
+        current_report = report
         context_report = None
-        while repair_attempt_count < self.settings.script_repair_max_attempts:
+        while (
+            not current_report.validation_report.accepted
+            and repair_attempt_count < self.settings.script_repair_max_attempts
+        ):
             repair_attempt_count += 1
-            packed_prompt = self._repair_prompt(current_yaml, current_report_json, book_index)
+            packed_prompt = self._repair_prompt(
+                current_yaml,
+                current_report.validation_report.model_dump(mode="json"),
+                book_index,
+            )
             context_report = packed_prompt.report
             screenplay = await self.agent.repair_script(
                 packed_prompt.prompt,
@@ -523,11 +535,6 @@ class ScriptService:
                 ),
             )
             current_yaml = self._dump_screenplay(screenplay)
-            current_report = await self.validate_script(project_id, current_yaml)
-            if current_report.validation_report.accepted:
-                break
-            current_report_json = current_report.validation_report.model_dump(mode="json")
-        if current_report is None:
             current_report = await self.validate_script(project_id, current_yaml)
         return current_yaml, current_report, repair_attempt_count, context_report
 

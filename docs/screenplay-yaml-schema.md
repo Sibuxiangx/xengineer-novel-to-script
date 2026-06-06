@@ -9,7 +9,7 @@
 - 可读：作者和评审可以直接阅读 YAML，理解人物、地点、场景、事件和改编意图。
 - 可追溯：每个场景必须说明来源章节，避免 AI 生成内容脱离原文。
 - 可编辑：人物、地点、场景、事件都使用稳定 ID，方便后续对话式局部修改。
-- 可校验：后端 harness 能检查结构、引用、来源、改编说明和基础质量指标。
+- 可校验：后端验证服务能检查结构、引用、来源、改编说明和基础质量指标。
 
 ## 顶层结构
 
@@ -72,7 +72,7 @@ scenes: []
 - `description: string`，地点描述。
 - `visual_motifs: string[]`，视觉母题。
 
-设计原因：剧本是可拍摄、可排演的文本。地点表让场景设定可复用，也方便 harness 检查场景是否引用了不存在的地点。
+设计原因：剧本是可拍摄、可排演的文本。地点表让场景设定可复用，也方便验证服务检查场景是否引用了不存在的地点。
 
 ### `scenes`
 
@@ -91,7 +91,7 @@ scenes: []
 - `emotional_shift?: string`，情绪变化。
 - `adaptation_notes?: AdaptationNotes`，改编说明。
 
-设计原因：场景是小说到剧本的核心转换单位。相比直接输出长段剧本正文，结构化场景能表达“为什么这一场存在”“冲突是什么”“来自原文哪里”“哪些内容被删改”，更适合 agent 后续局部编辑和 harness 校验。
+设计原因：场景是小说到剧本的核心转换单位。相比直接输出长段剧本正文，结构化场景能表达“为什么这一场存在”“冲突是什么”“来自原文哪里”“哪些内容被删改”，更适合 agent 后续局部编辑和本地验证。
 
 ## 子结构
 
@@ -125,7 +125,7 @@ atmosphere: "潮湿、压迫"
 - `time_of_day?: string`，发生时段。
 - `atmosphere?: string`，场景氛围。
 
-设计原因：剧本需要具备空间和表演提示。`location_id` 使用引用而不是重复名称，是为了让 harness 能检查引用完整性。
+设计原因：剧本需要具备空间和表演提示。`location_id` 使用引用而不是重复名称，是为了让验证服务能检查引用完整性。
 
 ### `ScriptEvent`
 
@@ -171,7 +171,7 @@ risks:
 
 设计原因：小说改编必须做取舍。`adaptation_notes` 要求 agent 明确说明删改意图和风险，方便作者接管，也体现“产品架构师”视角里的可解释交付。
 
-实现说明：Pydantic 模型中 `adaptation_notes` 允许为空，方便保存 rejected draft；但 harness 对 accepted 版本要求每个 scene 必须包含 `adaptation_notes`。这能让失败产物可保存，同时保证最终版本有改编解释。
+实现说明：Pydantic 模型中 `adaptation_notes` 允许为空，方便保存 rejected draft；但本地验证对 accepted 版本要求每个 scene 必须包含 `adaptation_notes`。这能让失败产物可保存，同时保证最终版本有改编解释。
 
 ## 最小示例
 
@@ -235,7 +235,7 @@ scenes:
         - "开场节奏加快，需在后续场景补足人物犹豫。"
 ```
 
-## Harness 校验规则
+## 本地验证规则
 
 后端 `ValidationService` 会在生成、编辑、修复和导出前校验 YAML。
 
@@ -260,8 +260,8 @@ scenes:
 
 状态语义：
 
-- `accepted`：通过 harness，可写入当前 `script.yaml` 并成为可导出版本。
-- `rejected`：生成了可接管草稿，但未通过 harness。系统会保存 rejected draft、validation report 和上下文报告，方便后续修复。
+- `accepted`：通过本地验证，可写入当前 `script.yaml` 并成为可导出版本。
+- `rejected`：生成了可接管草稿，但未通过验证。系统会保存 rejected draft、validation report 和上下文报告，方便后续修复。
 
 ## 编辑操作设计
 
@@ -279,7 +279,7 @@ scenes:
 
 - 局部操作更可审查，PR 和 commit 也更容易解释。
 - 稳定 ID 能让前端资产栏、YAML 编辑器和 agent 对话定位同一个节点。
-- patch 后会重新运行 harness；无变化 patch、未知 operation 或当前 Schema 不支持的 operation 会显式失败，不会假装成功。
+- patch 后会重新运行本地验证；无变化 patch、未知 operation 或当前 Schema 不支持的 operation 会显式失败，不会假装成功。
 
 ## 为什么暂不加入更复杂结构
 

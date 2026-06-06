@@ -85,14 +85,14 @@ class BookIndexBuiltToolResult(BaseModel):
 class ScriptGeneratedToolResult(BaseModel):
     accepted_version_id: str | None = Field(
         default=None,
-        description="Accepted screenplay version ID, if harness accepted the YAML.",
+        description="Accepted screenplay version ID, if validation accepted the YAML.",
     )
     rejected_version_id: str | None = Field(
         default=None,
-        description="Rejected draft version ID, if harness rejected the YAML after repairs.",
+        description="Rejected draft version ID, if validation rejected the YAML after repairs.",
     )
-    accepted: bool = Field(..., description="Whether the generated YAML passed harness.")
-    severity: str = Field(..., description="Harness validation severity.")
+    accepted: bool = Field(..., description="Whether the generated YAML passed validation.")
+    severity: str = Field(..., description="Validation severity.")
     repair_attempt_count: int = Field(..., description="Automatic repair attempts performed.")
     validation_status: Literal["accepted", "rejected"] = Field(
         ...,
@@ -107,14 +107,14 @@ class ScriptGeneratedToolResult(BaseModel):
 class ScriptEditedToolResult(BaseModel):
     accepted_version_id: str | None = Field(
         default=None,
-        description="Accepted screenplay version ID, if harness accepted the edit.",
+        description="Accepted screenplay version ID, if validation accepted the edit.",
     )
     rejected_version_id: str | None = Field(
         default=None,
-        description="Rejected draft version ID, if harness rejected the edit after repairs.",
+        description="Rejected draft version ID, if validation rejected the edit after repairs.",
     )
     operation_count: int = Field(..., description="Applied YAML patch operation count.")
-    accepted: bool = Field(..., description="Whether the edited YAML passed harness.")
+    accepted: bool = Field(..., description="Whether the edited YAML passed validation.")
     repair_attempt_count: int = Field(..., description="Automatic repair attempts performed.")
     validation_status: Literal["accepted", "rejected"] = Field(
         ...,
@@ -503,7 +503,7 @@ class ChatToolbox:
                 tool,
                 {
                     "phase": "preparing",
-                    "message": "正在根据剧情索引生成剧本 YAML，并准备运行 harness 校验。",
+                    "message": "正在根据剧情索引生成剧本 YAML，并准备运行本地验证。",
                 },
             )
             script = await ScriptService(
@@ -782,7 +782,7 @@ class ChatToolbox:
             self.last_repair_attempt_count = repair_attempt_count
             self.last_validation_report = validation_report
             self.last_validation_error_message = (
-                f"剧本 YAML 未通过 harness，已自动修复 {repair_attempt_count} 次，"
+                f"剧本 YAML 未通过验证，已自动修复 {repair_attempt_count} 次，"
                 "当前结果已保存为 rejected draft。"
             )
         self._append_event(

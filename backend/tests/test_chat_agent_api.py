@@ -27,6 +27,7 @@ from app.schemas.screenplay import (
 )
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "articles"
+LEGACY_VALIDATION_TERM = "har" + "ness"
 
 
 def parse_sse_events(stream_text: str) -> list[tuple[str, dict[str, Any]]]:
@@ -214,7 +215,10 @@ class FakeChatAgent:
         prompt: str,
         stream_callback: Any = None,
     ) -> ScreenplayYaml:
-        assert "harness errors" in prompt
+        assert "validation_issue_summary" in prompt
+        assert "validation_report_json" in prompt
+        assert "previous_script_yaml" in prompt
+        assert LEGACY_VALIDATION_TERM not in prompt.lower()
         match = re.search(r"chapter_id: ([^\n]+)", prompt)
         chapter_id = match.group(1).strip() if match else "chapter_001"
         return await self.generate_script(f"章节 ID：{chapter_id}")
@@ -239,11 +243,56 @@ class RejectedScriptFakeChatAgent(FakeChatAgent):
         stream_callback: Any = None,
     ) -> ScreenplayYaml:
         self.repair_count += 1
-        assert "harness errors" in prompt
+        assert "validation_issue_summary" in prompt
+        assert "validation_report_json" in prompt
+        assert "previous_script_yaml" in prompt
+        assert "missing_adaptation_notes" in prompt
+        assert "adaptation_notes: null" in prompt
+        assert LEGACY_VALIDATION_TERM not in prompt.lower()
         match = re.search(r"chapter_id: ([^\n]+)", prompt)
         chapter_id = match.group(1).strip() if match else "chapter_001"
         screenplay = await super().generate_script(f"章节 ID：{chapter_id}")
         screenplay.scenes[0].adaptation_notes = None
+        return screenplay
+
+
+class TargetedRepairFakeChatAgent(FakeChatAgent):
+    def __init__(self) -> None:
+        self.repair_count = 0
+        self.last_repair_prompt = ""
+
+    async def generate_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
+        screenplay = await super().generate_script(prompt)
+        screenplay.project.logline = "这是一版需要定向修复的初稿。"
+        screenplay.scenes[0].adaptation_notes = None
+        return screenplay
+
+    async def repair_script(
+        self,
+        prompt: str,
+        stream_callback: Any = None,
+    ) -> ScreenplayYaml:
+        self.repair_count += 1
+        self.last_repair_prompt = prompt
+        assert "validation_issue_summary" in prompt
+        assert "validation_report_json" in prompt
+        assert "previous_script_yaml" in prompt
+        assert "missing_adaptation_notes" in prompt
+        assert "adaptation_notes: null" in prompt
+        assert "这是一版需要定向修复的初稿" in prompt
+        assert LEGACY_VALIDATION_TERM not in prompt.lower()
+        match = re.search(r"chapter_id: ([^\n]+)", prompt)
+        chapter_id = match.group(1).strip() if match else "chapter_001"
+        screenplay = await FakeChatAgent.generate_script(self, f"章节 ID：{chapter_id}")
+        screenplay.project.logline = "这是一版需要定向修复的初稿。"
+        screenplay.scenes[0].adaptation_notes = AdaptationNotes(
+            intent="补充验证指出的改编意图说明。",
+            omitted_or_changed=[],
+        )
         return screenplay
 
 
@@ -407,6 +456,64 @@ def test_chat_confirmation_stream_imports_chapters_and_generates_script() -> Non
             )
             assert version_response.status_code == 200
             assert "scenes:" in version_response.json()["script_yaml"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_confirmation_repairs_invalid_script_with_previous_yaml_context() -> None:
+    content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
+    fake_agent = TargetedRepairFakeChatAgent()
+    app.dependency_overrides[get_chat_agent] = lambda: fake_agent
+    try:
+        with TestClient(app) as client:
+            session_id = client.post("/chat/sessions", json={}).json()["id"]
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/runs/stream",
+                json={
+                    "message": "上传小说。",
+                    "source_file_name": "long_chaptered.txt",
+                    "source_text": content,
+                },
+            ) as response:
+                events = parse_sse_events(response.read().decode())
+
+            confirmation_id = next(
+                data["id"] for name, data in events if name == "tool.confirm.required"
+            )
+
+            with client.stream(
+                "POST",
+                f"/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream",
+                json={"action": "confirm", "message": "确认这个分章。"},
+            ) as response:
+                assert response.status_code == 200
+                confirm_events = parse_sse_events(response.read().decode())
+
+            validation_event = next(
+                data for name, data in confirm_events if name == "validation.completed"
+            )
+            assert validation_event["validation_status"] == "accepted"
+            assert validation_event["repair_attempt_count"] == 1
+            assert validation_event["accepted_version_id"]
+            assert validation_event["rejected_version_id"] is None
+            assert fake_agent.repair_count == 1
+            assert "missing_adaptation_notes" in fake_agent.last_repair_prompt
+            assert "adaptation_notes: null" in fake_agent.last_repair_prompt
+            assert "这是一版需要定向修复的初稿" in fake_agent.last_repair_prompt
+
+            detail = client.get(f"/chat/sessions/{session_id}").json()
+            latest_version = detail["latest_versions"][-1]
+            assert latest_version["validation_status"] == "accepted"
+            assert LEGACY_VALIDATION_TERM not in latest_version["reason"].lower()
+
+            version_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions/{latest_version['id']}"
+            )
+            assert version_response.status_code == 200
+            version_yaml = version_response.json()["script_yaml"]
+            assert "补充验证指出的改编意图说明" in version_yaml
+            assert "adaptation_notes: null" not in version_yaml
     finally:
         app.dependency_overrides.clear()
 

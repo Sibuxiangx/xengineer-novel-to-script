@@ -39,7 +39,7 @@
 
 ## 当前状态
 
-仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、上下文打包、剧本 YAML 生成、harness 校验、自动修复、rejected draft 保存、局部编辑、版本管理、SSE 心跳与可观测性闭环，并新增面向 Chat 产品形态的 Agent 会话、真实工具调用流与用户确认点。当前前端已基于 Ant Design X 重建为三栏 Chat Agent 产品形态：左侧项目会话、中间上传/对话与工具调用轨迹、右侧章节/索引/YAML/校验/版本资产栏。
+仓库创建于第三批次题目开放后。当前后端已完成项目创建、TXT 导入分章、剧情索引、上下文打包、剧本 YAML 生成、本地验证、自动修复、rejected draft 保存、局部编辑、版本管理、SSE 心跳与可观测性闭环，并新增面向 Chat 产品形态的 Agent 会话、真实工具调用流与用户确认点。当前前端已基于 Ant Design X 重建为三栏 Chat Agent 产品形态：左侧项目会话、中间上传/对话与工具调用轨迹、右侧章节/索引/YAML/校验/版本资产栏。
 
 ## 运行方式
 
@@ -97,7 +97,7 @@ SSE 事件类型：
 - `tool.call.started` / `tool.call.completed`：工具调用开始与完成。
 - `tool.confirm.required`：需要用户确认的工具结果，例如分章预览。
 - `asset.updated`：章节、剧情索引、剧本 YAML 等资产更新。
-- `validation.completed`：harness 校验完成，包含 accepted/rejected 状态、validation report、repair 次数和 context report。
+- `validation.completed`：本地验证完成，包含 accepted/rejected 状态、validation report、repair 次数和 context report。
 - `model.usage.estimated`：本地估算模型输入 token 和上下文块使用情况。
 - `run.waiting_confirmation` / `run.completed` / `run.completed_with_errors`：执行暂停、成功完成或生成可接管产物但仍存在错误。
 - `error`：可展示错误，不用静态兜底冒充成功。
@@ -122,8 +122,8 @@ AI 能力说明：
 
 剧本版本规则：
 
-- 通过 harness 校验的 YAML 会写入当前 `script.yaml`，并生成 `validation_status=accepted` 的版本快照。
-- 如果生成、编辑或修复后仍未通过 harness，系统会保存 `validation_status=rejected` 的 rejected draft，不会假装成功。
+- 通过本地验证的 YAML 会写入当前 `script.yaml`，并生成 `validation_status=accepted` 的版本快照。
+- 如果生成、编辑或修复后仍未通过验证，系统会保存 `validation_status=rejected` 的 rejected draft，不会假装成功。
 - 生成、编辑、修复都会返回校验报告，便于前端展示错误、修复建议与可量化指标。
 - 局部编辑使用结构化 YAML patch operations，例如 `patch_project`、`upsert_character`、`upsert_location`、`insert_scene`、`delete_scene`、`reorder_scenes`、`insert_event`、`replace_event`、`reorder_events`、`patch_adaptation_notes`。未知 operation、无变化 patch 或当前 Schema 不支持的 operation 会显式失败，不会保存空成功版本。
 
@@ -150,7 +150,7 @@ cd backend
 uv run python -m app.tools.deepseek_smoke
 ```
 
-该命令会读取 `.env` 中的 `DEEPSEEK_API_KEY`，使用临时 SQLite 与临时 artifacts 完成“创建项目 -> 导入三章短文 -> 生成 book_index.json -> 生成 script.yaml -> harness 校验并保存版本”的真实链路。每个模型步骤默认 180 秒超时，可通过 `--timeout-seconds 300` 调整。默认不会保留运行产物；需要保留时可执行 `uv run python -m app.tools.deepseek_smoke --keep-artifacts`，产物会写入已被 git 忽略的 `backend/data/deepseek-smoke/`。
+该命令会读取 `.env` 中的 `DEEPSEEK_API_KEY`，使用临时 SQLite 与临时 artifacts 完成“创建项目 -> 导入三章短文 -> 生成 book_index.json -> 生成 script.yaml -> 本地验证并保存版本”的真实链路。每个模型步骤默认 180 秒超时，可通过 `--timeout-seconds 300` 调整。默认不会保留运行产物；需要保留时可执行 `uv run python -m app.tools.deepseek_smoke --keep-artifacts`，产物会写入已被 git 忽略的 `backend/data/deepseek-smoke/`。
 
 ### 前端
 
@@ -170,7 +170,7 @@ pnpm dev
 3. 对话流通过 Ant Design X `Bubble.List` 展示 Agent 消息、工具调用开始/完成、资产更新和分章确认点。
 4. 用户在分章确认面板中查看预览、可编辑标题正则，并确认继续。
 5. 确认后前端通过 `/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 继续接收导入章节、构建索引、生成 YAML 与校验结果。
-6. 右侧资产栏常驻展示章节、`book_index.json`、`script.yaml`、harness 报告和版本记录。
+6. 右侧资产栏常驻展示章节、`book_index.json`、`script.yaml`、验证报告和版本记录。
 
 前端质量检查：
 

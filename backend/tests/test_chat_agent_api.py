@@ -606,3 +606,134 @@ def test_chat_routes_are_documented_in_openapi() -> None:
     assert confirm_route["summary"] == "Stream a confirmation action"
     assert chapters_route["summary"] == "List chat project chapters"
     assert versions_route["summary"] == "List chat project screenplay versions"
+
+
+def _setup_session_with_accepted_script(client: TestClient) -> tuple[str, str, str]:
+    content = (FIXTURE_ROOT / "long_chaptered.txt").read_text(encoding="utf-8")
+    session_id = client.post("/chat/sessions", json={}).json()["id"]
+    with client.stream(
+        "POST",
+        f"/chat/sessions/{session_id}/runs/stream",
+        json={
+            "message": "上传小说。",
+            "source_file_name": "long_chaptered.txt",
+            "source_text": content,
+        },
+    ) as response:
+        events = parse_sse_events(response.read().decode())
+    confirmation_id = next(
+        data["id"] for name, data in events if name == "tool.confirm.required"
+    )
+    with client.stream(
+        "POST",
+        f"/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream",
+        json={"action": "confirm", "message": "确认这个分章。"},
+    ) as response:
+        confirm_events = parse_sse_events(response.read().decode())
+    validation_event = next(
+        data for name, data in confirm_events if name == "validation.completed"
+    )
+    version_id = validation_event["accepted_version_id"]
+    assert version_id, "Setup expected accepted version after confirmation."
+    version_payload = client.get(
+        f"/chat/sessions/{session_id}/assets/scripts/versions/{version_id}"
+    ).json()
+    return session_id, version_id, version_payload["script_yaml"]
+
+
+def test_save_chat_session_script_yaml_accepts_valid_user_edit() -> None:
+    app.dependency_overrides[get_chat_agent] = lambda: FakeChatAgent()
+    try:
+        with TestClient(app) as client:
+            session_id, original_version_id, original_yaml = (
+                _setup_session_with_accepted_script(client)
+            )
+            edited_yaml = original_yaml.replace("dramatic_purpose:", "dramatic_purpose:", 1)
+            assert "logline:" in edited_yaml
+            edited_yaml = re.sub(
+                r"logline:\s*['\"]?[^\n'\"]*['\"]?",
+                "logline: '用户手动调整后的一句话故事'",
+                edited_yaml,
+                count=1,
+            )
+
+            response = client.put(
+                f"/chat/sessions/{session_id}/assets/scripts/yaml",
+                json={
+                    "script_yaml": edited_yaml,
+                    "reason": "可视化编辑器：改写一句话故事",
+                },
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["validation_status"] == "accepted"
+            assert body["accepted_version_id"]
+            assert body["accepted_version_id"] != original_version_id
+            assert body["rejected_version_id"] is None
+            assert body["validation_report"]["accepted"] is True
+
+            versions_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions"
+            )
+            version_ids = [v["id"] for v in versions_response.json()["versions"]]
+            assert body["accepted_version_id"] in version_ids
+
+            current_version_id = body["accepted_version_id"]
+            current = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions/{current_version_id}"
+            ).json()
+            assert "用户手动调整后的一句话故事" in current["script_yaml"]
+            assert current["version"]["created_by"] == "user"
+            assert "可视化编辑器" in current["version"]["reason"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_save_chat_session_script_yaml_rejects_invalid_user_edit() -> None:
+    app.dependency_overrides[get_chat_agent] = lambda: FakeChatAgent()
+    try:
+        with TestClient(app) as client:
+            session_id, original_version_id, original_yaml = (
+                _setup_session_with_accepted_script(client)
+            )
+            broken_yaml = "schema_version: '1.0'\nproject: {}\n"
+
+            response = client.put(
+                f"/chat/sessions/{session_id}/assets/scripts/yaml",
+                json={"script_yaml": broken_yaml},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert body["validation_status"] == "rejected"
+            assert body["accepted_version_id"] is None
+            assert body["rejected_version_id"]
+            assert body["validation_report"]["accepted"] is False
+            assert body["validation_report"]["errors"]
+
+            versions_response = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions"
+            )
+            rejected = next(
+                version
+                for version in versions_response.json()["versions"]
+                if version["id"] == body["rejected_version_id"]
+            )
+            assert rejected["validation_status"] == "rejected"
+
+            current = client.get(
+                f"/chat/sessions/{session_id}/assets/scripts/versions/{original_version_id}"
+            ).json()
+            assert current["script_yaml"] == original_yaml
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_save_chat_session_script_yaml_rejects_when_session_has_no_project() -> None:
+    with TestClient(app) as client:
+        session_id = client.post("/chat/sessions", json={}).json()["id"]
+        response = client.put(
+            f"/chat/sessions/{session_id}/assets/scripts/yaml",
+            json={"script_yaml": "schema_version: '1.0'\n"},
+        )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "chat_project_required"

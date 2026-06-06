@@ -15,6 +15,7 @@ from app.api.models.scripts import (
     ScriptExportResponse,
     ScriptGenerateResponse,
     ScriptRestoreResponse,
+    ScriptUserEditResponse,
     ScriptValidateResponse,
     ScriptVersionDetailResponse,
     ScriptVersionListResponse,
@@ -347,6 +348,55 @@ class ScriptService:
         return ScriptVersionDetailResponse(
             version=self._version_response(version),
             script_yaml=self.store.read_text(version.file_path),
+        )
+
+    async def save_user_edit(
+        self,
+        project_id: str,
+        script_yaml: str,
+        reason: str | None,
+    ) -> ScriptUserEditResponse:
+        project = await self.projects.get(project_id)
+        if project is None:
+            raise ScriptServiceProjectNotFoundError(project_id)
+        report = await self.validate_script(project_id, script_yaml)
+        accepted = report.validation_report.accepted
+        effective_reason = (reason or "").strip() or "用户在可视化编辑器中保存修改"
+        accepted_version_id = None
+        rejected_version_id = None
+        if accepted:
+            accepted_version_id = await self._save_script_version(
+                project_id=project_id,
+                script_yaml=script_yaml,
+                created_by="user",
+                reason=effective_reason,
+                operation_count=0,
+                validation_status=ValidationStatus.accepted,
+                validation_report=report.validation_report,
+                make_current=True,
+            )
+        else:
+            rejected_version_id = await self._save_script_version(
+                project_id=project_id,
+                script_yaml=script_yaml,
+                created_by="user",
+                reason=f"{effective_reason}（未通过校验，已保留为草稿）",
+                operation_count=0,
+                validation_status=ValidationStatus.rejected,
+                validation_report=report.validation_report,
+                make_current=False,
+            )
+        return ScriptUserEditResponse(
+            project_id=project_id,
+            script_yaml=script_yaml,
+            validation_report=report.validation_report,
+            accepted_version_id=accepted_version_id,
+            rejected_version_id=rejected_version_id,
+            validation_status=(
+                ValidationStatus.accepted.value
+                if accepted
+                else ValidationStatus.rejected.value
+            ),
         )
 
     async def restore_version(self, project_id: str, version_id: str) -> ScriptRestoreResponse:

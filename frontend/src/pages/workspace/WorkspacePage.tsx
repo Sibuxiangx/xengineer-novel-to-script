@@ -31,7 +31,6 @@ import { ChatTimeline } from '../../features/chat/ChatTimeline'
 import { ChatComposer } from '../../features/chat/ChatComposer'
 import { buildBubbleItems } from '../../features/chat/buildBubbleItems'
 import { buildHistoryEvents } from '../../features/chat/replayHistory'
-import { AssetTabs } from '../../features/assets/AssetTabs'
 import { AssetGuide } from '../../features/assets/AssetGuide'
 import { ChaptersAsset } from '../../features/assets/ChaptersAsset'
 import { BookIndexAsset } from '../../features/assets/BookIndexAsset'
@@ -48,6 +47,29 @@ import type {
   ConfirmationActionRequest,
 } from '../../types'
 import './WorkspacePage.css'
+
+const WORKBENCH_META: Record<AssetTab, { title: string; subtitle: string }> = {
+  chapters: {
+    title: '章节',
+    subtitle: '查看已确认的小说章节与原文片段。',
+  },
+  index: {
+    title: '剧情索引',
+    subtitle: '查看角色、地点、事件和章节摘要。',
+  },
+  yaml: {
+    title: '剧本',
+    subtitle: '在可视化表单和 YAML 源码之间切换查看剧本草稿。',
+  },
+  validation: {
+    title: '校验',
+    subtitle: '查看本地验证结果、问题定位和修复建议。',
+  },
+  versions: {
+    title: '历史版本',
+    subtitle: '回看已生成的 accepted / rejected 剧本版本。',
+  },
+}
 
 export default function WorkspacePage() {
   const { sessionId: routeSessionId } = useParams()
@@ -582,6 +604,7 @@ export default function WorkspacePage() {
     sessionCount: sessions.length,
     archivedCount: archivedSessions.length,
   }
+  const workbenchMeta = WORKBENCH_META[activeAssetTab]
 
   return (
     <AppShell
@@ -632,6 +655,7 @@ export default function WorkspacePage() {
                     bookIndexLoading={bookIndexQuery.isLoading}
                     versions={versions}
                     activeTab={activeAssetTab}
+                    highlightedTabs={assetHighlights}
                     onSelectTab={handleSelectAssetTab}
                   />
                 ),
@@ -705,12 +729,17 @@ export default function WorkspacePage() {
         ) : null}
         {hasProject ? (
           <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">
-            <AssetTabs
-              activeTab={activeAssetTab}
-              onTabChange={handleSelectAssetTab}
-              panels={panels}
-              highlightedTabs={assetHighlights}
-            />
+            <header className="sw-workbench-document-head">
+              <div>
+                <div className="sw-workbench-document-title">{workbenchMeta.title}</div>
+                <div className="sw-workbench-document-subtitle">
+                  {workbenchMeta.subtitle}
+                </div>
+              </div>
+            </header>
+            <div className="sw-workbench-document-body">
+              {panels[activeAssetTab]}
+            </div>
           </section>
         ) : (
           <section className="sw-script-workbench" aria-label="剧本预览与编辑工作区">

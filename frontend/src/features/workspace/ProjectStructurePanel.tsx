@@ -4,6 +4,7 @@ import {
   CodeOutlined,
   DatabaseOutlined,
   EnvironmentOutlined,
+  ExclamationCircleOutlined,
   HistoryOutlined,
   SafetyCertificateOutlined,
   ThunderboltOutlined,
@@ -24,6 +25,7 @@ type ProjectStructurePanelProps = {
   bookIndexLoading: boolean
   versions: ScriptVersion[]
   activeTab: AssetTab
+  highlightedTabs?: Partial<Record<AssetTab, boolean>>
   onSelectTab: (tab: AssetTab) => void
 }
 
@@ -67,11 +69,25 @@ function extractShape(record: JsonRecord | undefined): BookIndexShape {
   return record ? (record as unknown as BookIndexShape) : {}
 }
 
-function nodeTitle(label: string, meta?: ReactNode) {
+function nodeTitle(
+  label: string,
+  meta?: ReactNode,
+  options: { warning?: boolean; highlighted?: boolean } = {},
+) {
   return (
     <Flex align="center" justify="space-between" gap={8} className="sw-structure-title">
-      <Text ellipsis>{label}</Text>
-      {meta}
+      <span className="sw-structure-title-main">
+        {options.warning ? (
+          <ExclamationCircleOutlined className="sw-structure-warning-icon" aria-hidden />
+        ) : null}
+        <Text ellipsis className={options.warning ? 'sw-structure-warning-text' : undefined}>
+          {label}
+        </Text>
+      </span>
+      <span className="sw-structure-title-meta">
+        {options.highlighted ? <Badge dot className="sw-structure-dot" /> : null}
+        {meta}
+      </span>
     </Flex>
   )
 }
@@ -92,6 +108,7 @@ export function ProjectStructurePanel({
   bookIndexLoading,
   versions,
   activeTab,
+  highlightedTabs = {},
   onSelectTab,
 }: ProjectStructurePanelProps) {
   if (!hasProject) {
@@ -126,17 +143,24 @@ export function ProjectStructurePanel({
       icon: <CodeOutlined aria-hidden />,
       title: nodeTitle(
         '剧本',
-        versions.length > 0 ? (
-          <Tag color={rejectedCount > 0 ? 'warning' : 'success'} className="sw-structure-tag">
+        rejectedCount > 0 ? (
+          <Tag color="warning" className="sw-structure-tag">
+            待修
+          </Tag>
+        ) : versions.length > 0 ? (
+          <Tag color="success" className="sw-structure-tag">
             {versions.length}
           </Tag>
         ) : null,
+        { warning: rejectedCount > 0, highlighted: highlightedTabs.yaml },
       ),
     },
     {
       key: 'asset:chapters',
       icon: <BookOutlined aria-hidden />,
-      title: nodeTitle('章节', <Tag className="sw-structure-tag">{chapters.length}</Tag>),
+      title: nodeTitle('章节', <Tag className="sw-structure-tag">{chapters.length}</Tag>, {
+        highlighted: highlightedTabs.chapters,
+      }),
       children: chapters.slice(0, 18).map((chapter) => ({
         key: `chapter:${chapter.id}`,
         title: nodeTitle(
@@ -147,7 +171,7 @@ export function ProjectStructurePanel({
     {
       key: 'asset:index',
       icon: <DatabaseOutlined aria-hidden />,
-      title: nodeTitle('剧情索引'),
+      title: nodeTitle('剧情索引', null, { highlighted: highlightedTabs.index }),
       children: [
         {
           key: 'index:characters',
@@ -199,12 +223,15 @@ export function ProjectStructurePanel({
             正常
           </Tag>
         ),
+        { warning: rejectedCount > 0, highlighted: highlightedTabs.validation },
       ),
     },
     {
       key: 'asset:versions',
       icon: <HistoryOutlined aria-hidden />,
-      title: nodeTitle('历史版本', <Tag className="sw-structure-tag">{versions.length}</Tag>),
+      title: nodeTitle('历史版本', <Tag className="sw-structure-tag">{versions.length}</Tag>, {
+        highlighted: highlightedTabs.versions,
+      }),
     },
   ]
 

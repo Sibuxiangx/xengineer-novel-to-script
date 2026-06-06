@@ -21,8 +21,33 @@
   min-width: 0;
 }
 
+.sw-structure-title-main,
+.sw-structure-title-meta {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sw-structure-title-main {
+  flex: 1 1 auto;
+}
+
+.sw-structure-title-meta {
+  flex: 0 0 auto;
+}
+
+.sw-structure-warning-icon,
+.sw-structure-warning-text {
+  color: var(--sw-color-warning) !important;
+}
+
 .sw-structure-tag {
   margin-inline-end: 0;
+}
+
+.sw-structure-dot {
+  margin-inline-end: 2px;
 }
 
 .sw-structure-panel .ant-tree {

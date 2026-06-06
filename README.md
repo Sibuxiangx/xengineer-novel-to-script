@@ -154,7 +154,7 @@ uv run python -m app.tools.deepseek_smoke
 
 ### 前端
 
-前端使用 React、TypeScript、Vite、pnpm、Ant Design X、Ant Design、TanStack Query、React Router 与 Monaco Editor。
+前端使用 React、TypeScript、Vite、pnpm、Ant Design X、Ant Design、TanStack Query、React Router、Monaco Editor 与 `yaml`。
 
 ```bash
 cd frontend
@@ -165,12 +165,12 @@ pnpm dev
 
 前端默认读取 `VITE_API_BASE_URL=http://127.0.0.1:8000`。当前界面主流程：
 
-1. 打开产品后，中间显示上传/粘贴小说的对话入口。
+1. 打开产品后，左侧显示结构/会话导航，中间显示剧本工作区，右侧显示 AI 对话入口。
 2. 用户上传或粘贴 TXT，前端通过 POST SSE 调用 `/chat/sessions/{session_id}/runs/stream`。
-3. 对话流通过 Ant Design X `Bubble.List` 展示 Agent 消息、工具调用开始/完成、资产更新和分章确认点。
+3. 对话流通过 Ant Design X `Bubble.List` 展示 Agent 消息、分章确认点和默认折叠的工具执行细节。
 4. 用户在分章确认面板中查看预览、可编辑标题正则，并确认继续。
 5. 确认后前端通过 `/chat/sessions/{session_id}/confirmations/{confirmation_id}/stream` 继续接收导入章节、构建索引、生成 YAML 与校验结果。
-6. 右侧资产栏常驻展示章节、`book_index.json`、`script.yaml`、验证报告和版本记录。
+6. 中间剧本工作区展示章节、`book_index.json`、剧本可视化表单、YAML 源码、验证报告和版本记录。
 
 前端质量检查：
 
@@ -212,6 +212,7 @@ pnpm build
 - Ant Design / `@ant-design/icons`：通用产品组件、图标、主题和资产侧边栏。
 - TanStack Query：接口请求状态与缓存。
 - React Router：前端路由入口。
-- Monaco Editor：剧本 YAML 查看器。
+- Monaco Editor：剧本 YAML 源码查看器。
+- `yaml`：前端解析和重新序列化剧本 YAML，用于可视化编辑草稿。
 
 所有第三方依赖会持续在此处列明，并说明原创功能边界。

@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
 import { constants } from 'node:fs'
-import { access, copyFile, readFile, writeFile } from 'node:fs/promises'
+import { access, copyFile, readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { createInterface } from 'node:readline/promises'
-import { stdin as input, stdout as output } from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -20,8 +18,6 @@ const checkOnly = process.argv.includes('--check-only')
 const requiredEnvVars = [
   {
     key: 'DEEPSEEK_API_KEY',
-    label: 'DeepSeek API Key',
-    description: '用于真实 Agent 调用 DeepSeek 模型，形如 sk-...',
   },
 ]
 
@@ -65,27 +61,6 @@ function parseEnv(content) {
   return values
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function formatEnvValue(value) {
-  if (/^[A-Za-z0-9_./:@+-]+$/.test(value)) {
-    return value
-  }
-  return JSON.stringify(value)
-}
-
-function setEnvValue(content, key, value) {
-  const line = `${key}=${formatEnvValue(value)}`
-  const matcher = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=.*$`, 'm')
-  if (matcher.test(content)) {
-    return content.replace(matcher, line)
-  }
-  const separator = content.endsWith('\n') || content.length === 0 ? '' : '\n'
-  return `${content}${separator}${line}\n`
-}
-
 function renderBox(title, lines) {
   const width = Math.max(title.length + 4, ...lines.map((line) => line.length + 4), 58)
   const border = '─'.repeat(width - 2)
@@ -98,39 +73,6 @@ function renderBox(title, lines) {
   console.log(`└${border}┘`)
 }
 
-async function promptRequiredValues(missingVars) {
-  if (!input.isTTY || !output.isTTY) {
-    const names = missingVars.map((item) => item.key).join(', ')
-    throw new Error(`缺少后端必填环境变量：${names}。请编辑 backend/.env 后重新运行。`)
-  }
-
-  renderBox('ScriptWeaver 后端环境变量初始化', [
-    '检测到首次运行或必填项为空，需要补齐真实模型调用配置。',
-    '输入内容会写入 backend/.env，该文件已被 .gitignore 忽略。',
-    '直接 Ctrl+C 可以取消启动。',
-  ])
-
-  const rl = createInterface({ input, output })
-  const answers = new Map()
-  try {
-    for (const item of missingVars) {
-      console.log(`\n${item.label}`)
-      console.log(`  ${item.description}`)
-      let answer = ''
-      while (!answer.trim()) {
-        answer = await rl.question(`请输入 ${item.key}: `)
-        if (!answer.trim()) {
-          console.log('该项不能为空。')
-        }
-      }
-      answers.set(item.key, answer.trim())
-    }
-  } finally {
-    rl.close()
-  }
-  return answers
-}
-
 async function ensureBackendEnv() {
   const hasEnv = await pathExists(envPath)
   if (!hasEnv) {
@@ -138,7 +80,7 @@ async function ensureBackendEnv() {
       throw new Error(`找不到 ${path.relative(rootDir, examplePath)}，无法创建后端 .env。`)
     }
     if (checkOnly) {
-      throw new Error('缺少 backend/.env。请运行 pnpm run dev 并按提示初始化，或手动复制 .env.example。')
+      throw new Error('缺少 backend/.env。请运行 pnpm run dev 后在 Web 设置面板中完成环境配置。')
     }
     log('backend/.env not found; copying backend/.env.example')
     await copyFile(examplePath, envPath)
@@ -158,16 +100,11 @@ async function ensureBackendEnv() {
     throw new Error(`缺少后端必填环境变量：${names}。`)
   }
 
-  const answers = await promptRequiredValues(missingVars)
-  let nextContent = content
-  for (const [key, value] of answers.entries()) {
-    nextContent = setEnvValue(nextContent, key, value)
-  }
-  if (!nextContent.endsWith('\n')) {
-    nextContent += '\n'
-  }
-  await writeFile(envPath, nextContent, 'utf8')
-  log('backend/.env updated')
+  renderBox('ScriptWeaver 环境配置待完成', [
+    '开发服务会继续启动，方便你在 Web 产品里完成初始化。',
+    '打开工作台后进入「设置 -> 环境配置」填写 DeepSeek API Key。',
+    '生产路径不会静态兜底；未配置前 Agent 调用会返回明确错误。',
+  ])
 }
 
 ensureBackendEnv().catch((error) => {

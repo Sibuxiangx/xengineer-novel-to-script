@@ -17,6 +17,8 @@ import {
 } from '@ant-design/icons'
 import { apiBaseUrl } from '../lib/api'
 import { formatDate } from '../lib/formatting'
+import { RuntimeConfigForm } from '../features/config/RuntimeConfigForm'
+import { useRuntimeConfig } from '../features/config/hooks'
 import type { ChatSession, RunStatus } from '../types'
 import type { AssetTab, ThemeMode } from '../state/uiPrefs'
 import './WorkspaceSettingsModal.css'
@@ -68,6 +70,7 @@ export function WorkspaceSettingsModal({
   onRestoreSession,
 }: WorkspaceSettingsModalProps) {
   const isDark = themeMode === 'dark'
+  const runtimeConfigQuery = useRuntimeConfig()
 
   return (
     <Modal
@@ -96,6 +99,14 @@ export function WorkspaceSettingsModal({
           <Tag color={isDark ? 'gold' : 'default'}>
             当前：{isDark ? '深色模式' : '浅色模式'}
           </Tag>
+        </section>
+
+        <section className="sw-settings-section">
+          <RuntimeConfigForm
+            compact
+            config={runtimeConfigQuery.data}
+            onSaved={() => void runtimeConfigQuery.refetch()}
+          />
         </section>
 
         <section className="sw-settings-section">

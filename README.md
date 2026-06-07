@@ -66,12 +66,12 @@ pnpm run dev
 
 脚本会自动导出 `VITE_API_BASE_URL=http://127.0.0.1:8000`，并在退出时同时停止前后端进程。如果首次运行缺少 `backend/.env`、`backend/.venv` 或 `frontend/node_modules`，脚本会补齐基础本地环境。
 
-启动前会先执行后端环境变量预检：
+启动时会先准备本地配置文件：
 
 - 如果 `backend/.env` 不存在，会从 `backend/.env.example` 创建。
-- 如果必填变量为空，会在终端中用交互式提示要求补齐，例如 `DEEPSEEK_API_KEY`。
-- 如果当前不是交互式终端，预检会直接失败并提示缺少的变量，避免启动后才在 Agent 调用阶段报错。
-- 已配置环境时可执行 `pnpm run env:check` 快速检查。
+- 如果 `DEEPSEEK_API_KEY` 仍为空，开发服务会继续启动，Web 首屏会进入环境保护页。
+- 在 Web 中填写 DeepSeek API Key 并保存后，配置会写入本地 `backend/.env`，随后自动进入工作台。
+- 已配置环境时可执行 `pnpm run env:check` 做严格检查。
 
 ### 后端
 
@@ -86,7 +86,7 @@ uv run fastapi dev app/main.py
 
 ### 后端环境变量
 
-后端配置文件位于 `backend/.env`，该文件已被 `.gitignore` 忽略，不应提交到仓库。可以手动复制示例文件，也可以直接运行 `pnpm run dev` 让脚本引导创建。
+后端配置文件位于 `backend/.env`，该文件已被 `.gitignore` 忽略，不应提交到仓库。可以手动复制示例文件，也可以直接运行 `pnpm run dev` 后在 Web 初始化页或设置面板中完成配置。
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -95,7 +95,7 @@ uv run fastapi dev app/main.py
 | `DEEPSEEK_MODEL` | 否 | `deepseek-v4-pro` | Chat Agent 与复杂推理默认模型。 |
 | `DEEPSEEK_FAST_MODEL` | 否 | `deepseek-v4-flash` | 剧情索引、初版剧本 YAML 等高吞吐结构化生成模型。 |
 | `MODEL_CONTEXT_LIMIT` | 否 | `1000000` | 本地上下文预算估算上限。 |
-| `BACKEND_CORS_ORIGINS` | 否 | `http://localhost:5173` | 允许访问后端的前端来源，多个值用英文逗号分隔。 |
+| `BACKEND_CORS_ORIGINS` | 否 | `*` | 允许访问后端的前端来源。开发环境默认放开，避免评委前端端口变化导致 CORS 失败。 |
 | `SQLITE_DATABASE_URL` | 否 | `sqlite+aiosqlite:///./data/app.db` | 本地 SQLite 异步数据库地址。 |
 | `LOCAL_ARTIFACT_ROOT` | 否 | `./data/projects` | 小说章节、剧情索引、剧本 YAML 等本地产物目录。 |
 | `DATABASE_ECHO` | 否 | `false` | 是否输出 SQLAlchemy SQL 日志。 |
@@ -105,6 +105,11 @@ uv run fastapi dev app/main.py
 ```bash
 pnpm run env:check
 ```
+
+Web 配置接口：
+
+- `GET /config/runtime`：读取本地运行配置状态，只返回脱敏后的 Key 状态。
+- `PUT /config/runtime`：更新本地 `backend/.env`，用于产品内初始化或轮换 DeepSeek 配置。
 
 启动后可访问：
 
@@ -139,7 +144,7 @@ SSE 事件类型：
 - `run.waiting_confirmation` / `run.completed` / `run.completed_with_errors`：执行暂停、成功完成或生成可接管产物但仍存在错误。
 - `error`：可展示错误，不用静态兜底冒充成功。
 
-产品 API 已完成减法：前端只应使用 `/health` 与 `/chat/**`。项目、分章、索引、剧本生成、校验、编辑、修复和版本管理仍由后端 service 层保留，但不再作为公开底层 router 暴露给产品前端。
+产品 API 已完成减法：前端只应使用 `/health`、`/config/runtime` 与 `/chat/**`。项目、分章、索引、剧本生成、校验、编辑、修复和版本管理仍由后端 service 层保留，但不再作为公开底层 router 暴露给产品前端。
 
 分章规则：
 

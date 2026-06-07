@@ -1,8 +1,12 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+ENV_FILE_PATH = Path(os.getenv("SCRIPTWEAVER_BACKEND_ENV_FILE", BACKEND_ROOT / ".env"))
 
 
 class Settings(BaseSettings):
@@ -68,7 +72,7 @@ class Settings(BaseSettings):
         description="Interval for SSE heartbeat events while long agent/tool tasks are running.",
     )
     backend_cors_origins: str = Field(
-        "http://localhost:5173",
+        "*",
         description="Comma-separated list of allowed frontend origins.",
     )
     sqlite_database_url: str = Field(
@@ -85,7 +89,7 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE_PATH),
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
@@ -94,6 +98,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.backend_cors_origins.split(",") if origin.strip()]
+
+    @property
+    def cors_allow_credentials(self) -> bool:
+        return "*" not in self.cors_origins
 
     @property
     def sqlite_database_path(self) -> Path | None:

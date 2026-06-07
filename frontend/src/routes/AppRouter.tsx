@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Navigate, Route, BrowserRouter, Routes } from 'react-router-dom'
 import { Spin } from 'antd'
+import { RuntimeConfigGate } from '../features/config/RuntimeConfigGate'
 
 const WorkspacePage = lazy(() => import('../pages/workspace/WorkspacePage'))
 
@@ -26,13 +27,15 @@ function LoadingFallback() {
 export function AppRouter() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<LoadingFallback />}>
-        <Routes>
-          <Route path="/" element={<WorkspacePage />} />
-          <Route path="/sessions/:sessionId" element={<WorkspacePage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+      <RuntimeConfigGate>
+        <Suspense fallback={<LoadingFallback />}>
+          <Routes>
+            <Route path="/" element={<WorkspacePage />} />
+            <Route path="/sessions/:sessionId" element={<WorkspacePage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </RuntimeConfigGate>
     </BrowserRouter>
   )
 }

@@ -3,6 +3,8 @@ import type {
   Chapter,
   ChatSession,
   ChatSessionDetail,
+  RuntimeConfig,
+  RuntimeConfigUpdateRequest,
   ScriptUserEditRequest,
   ScriptUserEditResponse,
   ScriptVersion,
@@ -74,6 +76,15 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 export const api = {
   health() {
     return request<{ status: string; service: string }>('/health')
+  },
+  getRuntimeConfig() {
+    return request<RuntimeConfig>('/config/runtime')
+  },
+  updateRuntimeConfig(payload: RuntimeConfigUpdateRequest) {
+    return request<RuntimeConfig>('/config/runtime', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
   },
   listSessions(options?: { includeArchived?: boolean }) {
     const query = options?.includeArchived ? '?include_archived=true' : ''

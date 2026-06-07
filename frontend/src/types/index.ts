@@ -1,5 +1,24 @@
 export type JsonRecord = Record<string, unknown>
 
+export type RuntimeConfig = {
+  env_file_exists: boolean
+  env_file_path: string
+  deepseek_api_key_configured: boolean
+  deepseek_api_key_masked: string | null
+  deepseek_base_url: string
+  deepseek_model: string
+  deepseek_fast_model: string
+  model_context_limit: number
+}
+
+export type RuntimeConfigUpdateRequest = {
+  deepseek_api_key?: string | null
+  deepseek_base_url?: string | null
+  deepseek_model?: string | null
+  deepseek_fast_model?: string | null
+  model_context_limit?: number | null
+}
+
 export type ChatSession = {
   id: string
   project_id: string | null

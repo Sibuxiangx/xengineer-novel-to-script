@@ -6,8 +6,6 @@
 
 > 面向小说作者与内容策划的 AI 结构化剧本工作台。
 
-![ScriptWeaver 产品图](frontend/src/assets/hero.png)
-
 ScriptWeaver 是七牛云 XEngineer 新工科计划第三批次参赛项目，面向「AI 小说转剧本工具」选题。产品目标不是做一次性的 Prompt 生成器，而是提供一个可持续协作的剧本工作台：导入小说 TXT，通过 Chat Agent 完成分章确认、剧情索引、结构化剧本生成、验证、局部编辑、修复与版本管理。
 
 ## 选题
@@ -266,3 +264,5 @@ pnpm build
 - `yaml`：前端解析和重新序列化剧本 YAML，用于可视化编辑草稿。
 
 所有第三方依赖会持续在此处列明，并说明原创功能边界。
+
+未引入 Alembic 迁移，使用 SQLite + create_all。

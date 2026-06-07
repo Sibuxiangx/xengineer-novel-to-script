@@ -51,11 +51,9 @@ trap cleanup EXIT INT TERM
 
 require_command uv
 require_command pnpm
+require_command node
 
-if [[ ! -f "$BACKEND_DIR/.env" ]]; then
-  log "backend/.env not found; copying backend/.env.example"
-  cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
-fi
+node "$ROOT_DIR/scripts/ensure-backend-env.mjs"
 
 if [[ ! -d "$BACKEND_DIR/.venv" ]]; then
   log "backend virtualenv not found; running uv sync"

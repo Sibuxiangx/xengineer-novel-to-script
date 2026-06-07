@@ -66,6 +66,13 @@ pnpm run dev
 
 脚本会自动导出 `VITE_API_BASE_URL=http://127.0.0.1:8000`，并在退出时同时停止前后端进程。如果首次运行缺少 `backend/.env`、`backend/.venv` 或 `frontend/node_modules`，脚本会补齐基础本地环境。
 
+启动前会先执行后端环境变量预检：
+
+- 如果 `backend/.env` 不存在，会从 `backend/.env.example` 创建。
+- 如果必填变量为空，会在终端中用交互式提示要求补齐，例如 `DEEPSEEK_API_KEY`。
+- 如果当前不是交互式终端，预检会直接失败并提示缺少的变量，避免启动后才在 Agent 调用阶段报错。
+- 已配置环境时可执行 `pnpm run env:check` 快速检查。
+
 ### 后端
 
 后端使用 Python、uv、FastAPI、Pydantic、Pydantic AI、SQLAlchemy async、SQLite 与本地文件存储。
@@ -75,6 +82,28 @@ cd backend
 uv sync
 cp .env.example .env
 uv run fastapi dev app/main.py
+```
+
+### 后端环境变量
+
+后端配置文件位于 `backend/.env`，该文件已被 `.gitignore` 忽略，不应提交到仓库。可以手动复制示例文件，也可以直接运行 `pnpm run dev` 让脚本引导创建。
+
+| 变量 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `DEEPSEEK_API_KEY` | 是 | 无 | DeepSeek API Key。生产路径没有静态兜底，缺失时 Agent 会明确报错。 |
+| `DEEPSEEK_BASE_URL` | 否 | `https://api.deepseek.com` | DeepSeek 兼容 API 基址。 |
+| `DEEPSEEK_MODEL` | 否 | `deepseek-v4-pro` | Chat Agent 与复杂推理默认模型。 |
+| `DEEPSEEK_FAST_MODEL` | 否 | `deepseek-v4-flash` | 剧情索引、初版剧本 YAML 等高吞吐结构化生成模型。 |
+| `MODEL_CONTEXT_LIMIT` | 否 | `1000000` | 本地上下文预算估算上限。 |
+| `BACKEND_CORS_ORIGINS` | 否 | `http://localhost:5173` | 允许访问后端的前端来源，多个值用英文逗号分隔。 |
+| `SQLITE_DATABASE_URL` | 否 | `sqlite+aiosqlite:///./data/app.db` | 本地 SQLite 异步数据库地址。 |
+| `LOCAL_ARTIFACT_ROOT` | 否 | `./data/projects` | 小说章节、剧情索引、剧本 YAML 等本地产物目录。 |
+| `DATABASE_ECHO` | 否 | `false` | 是否输出 SQLAlchemy SQL 日志。 |
+
+常用检查命令：
+
+```bash
+pnpm run env:check
 ```
 
 启动后可访问：

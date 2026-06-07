@@ -36,11 +36,14 @@ from app.db.models import (
     ChatToolCallRecord,
 )
 from app.db.repositories.chat import ChatRepository
+from app.db.repositories.projects import ProjectRepository
+from app.schemas.book_index import BookIndex
 from app.schemas.chapter_split import ChapterSplitRule
 from app.schemas.chat import ProjectTitleSuggestion
 from app.services.book_index_service import BookIndexService
 from app.services.chapter_split_inference_service import ChapterSplitInferenceService
 from app.services.context_packer import ContextPackingReport
+from app.services.context_prompt_builder import ContextPromptBuilder
 from app.services.project_service import ProjectService
 from app.services.script_service import ScriptService
 from app.storage.project_store import ProjectStore
@@ -126,6 +129,14 @@ class ScriptEditedToolResult(BaseModel):
     )
 
 
+class NovelQuestionAnsweredToolResult(BaseModel):
+    answer: str = Field(..., description="Chinese answer grounded in novel/project context.")
+    context_report: ContextPackingReport = Field(
+        ...,
+        description="Context packing diagnostics for the novel QA prompt.",
+    )
+
+
 class ChatToolbox:
     """Business tools exposed to the Pydantic AI chat agent."""
 
@@ -141,6 +152,7 @@ class ChatToolbox:
         run: ChatRunRecord,
         source_file_name: str | None = None,
         source_text: str | None = None,
+        adaptation_requirements: str | None = None,
         screenplay_format: str = "short_drama",
     ) -> None:
         self.db_session = db_session
@@ -152,8 +164,10 @@ class ChatToolbox:
         self.run = run
         self.source_file_name = source_file_name or "novel.txt"
         self.source_text = source_text or ""
+        self.adaptation_requirements = (adaptation_requirements or "").strip() or None
         self.screenplay_format = screenplay_format
         self.store = ProjectStore(settings.local_artifact_root)
+        self.context_prompts = ContextPromptBuilder(settings)
         self.events: list[str] = []
         self.project_id = chat_session.project_id
         self.project_title = chat_session.title
@@ -207,6 +221,7 @@ class ChatToolbox:
                 self.source_file_name,
                 self.source_text,
             )
+            self.store.write_adaptation_requirements(project.id, self.adaptation_requirements)
             self.chat_session.project_id = project.id
             self.chat_session.title = project.title
             await self.chat.touch_session(self.chat_session)
@@ -292,6 +307,7 @@ class ChatToolbox:
                 project_id=project_id,
                 source_text_path=self.source_text_path,
                 text_length=len(self.source_text),
+                adaptation_requirements=self.adaptation_requirements,
                 rule=self.chapter_split_rule,
                 preview=self.chapter_split_preview,
             )
@@ -394,7 +410,10 @@ class ChatToolbox:
         return result
 
     async def build_book_index(
-        self, project_id: str, force_rebuild: bool = True
+        self,
+        project_id: str,
+        force_rebuild: bool = True,
+        adaptation_requirements: str | None = None,
     ) -> BookIndexBuiltToolResult:
         tool = await self._start_tool(
             "build_book_index",
@@ -415,6 +434,7 @@ class ChatToolbox:
             ).build_index(
                 project_id,
                 force_rebuild=force_rebuild,
+                adaptation_requirements=adaptation_requirements,
                 stream_callback=self._llm_stream_callback(tool, "build_book_index"),
             )
             await self._emit_tool_delta(
@@ -494,6 +514,7 @@ class ChatToolbox:
         self,
         project_id: str,
         force_regenerate: bool = True,
+        adaptation_requirements: str | None = None,
     ) -> ScriptGeneratedToolResult:
         tool = await self._start_tool(
             "generate_script_yaml",
@@ -514,6 +535,7 @@ class ChatToolbox:
             ).generate_script(
                 project_id,
                 force_regenerate=force_regenerate,
+                adaptation_requirements=adaptation_requirements,
                 stream_callback=self._llm_stream_callback(tool, "generate_script_yaml"),
             )
             await self._emit_tool_delta(
@@ -574,6 +596,61 @@ class ChatToolbox:
                         ),
                     },
                 )
+            )
+        except Exception as exc:
+            await self._fail_tool(tool, str(exc))
+            raise
+        return result
+
+    async def answer_novel_question(
+        self,
+        project_id: str,
+        question: str,
+    ) -> NovelQuestionAnsweredToolResult:
+        tool = await self._start_tool(
+            "answer_novel_question",
+            {"project_id": project_id, "question": question},
+        )
+        try:
+            project = await ProjectRepository(self.db_session).get(project_id)
+            if project is None:
+                raise RuntimeError("Project does not exist.")
+            chapters = await ProjectService(self.db_session, self.settings).list_chapters(
+                project_id
+            )
+            book_index = self._load_book_index(project_id)
+            current_yaml = self._load_current_script_yaml(project_id)
+            packed_prompt = self.context_prompts.build_novel_answer_prompt(
+                question=question,
+                project_id=project_id,
+                project_title=project.title,
+                chapters=[
+                    {
+                        "id": chapter.id,
+                        "title": chapter.title,
+                        "order": chapter.order_index + 1,
+                        "content": chapter.content,
+                        "token_estimate": chapter.token_estimate,
+                    }
+                    for chapter in chapters
+                ],
+                book_index=book_index,
+                current_yaml=current_yaml,
+            )
+            answer = await self.agent.answer_novel_question(
+                packed_prompt.prompt,
+                stream_callback=self._llm_stream_callback(tool, "answer_novel_question"),
+            )
+            result = NovelQuestionAnsweredToolResult(
+                answer=answer,
+                context_report=packed_prompt.report,
+            )
+            await self._complete_tool(tool, result.model_dump(mode="json"))
+            await self._record_model_usage_estimate(
+                tool=tool,
+                project_id=project_id,
+                task="answer_novel_question",
+                context_report=packed_prompt.report,
             )
         except Exception as exc:
             await self._fail_tool(tool, str(exc))
@@ -811,6 +888,7 @@ class ChatToolbox:
         project_id: str,
         source_text_path: str,
         text_length: int,
+        adaptation_requirements: str | None,
         rule: ChapterSplitRule,
         preview: ChapterSplitInferencePreview,
     ) -> ChatConfirmationRecord:
@@ -818,6 +896,7 @@ class ChatToolbox:
             file_name=self.source_file_name,
             source_text_path=source_text_path,
             text_length=text_length,
+            adaptation_requirements=adaptation_requirements,
             rule=rule,
             preview=preview,
         )
@@ -833,6 +912,18 @@ class ChatToolbox:
         await self.chat.add_confirmation(confirmation)
         await self.db_session.commit()
         return confirmation
+
+    def _load_book_index(self, project_id: str) -> BookIndex | None:
+        path = self.store.book_index_path(project_id)
+        if not path.exists():
+            return None
+        return BookIndex.model_validate(self.store.read_json(path))
+
+    def _load_current_script_yaml(self, project_id: str) -> str | None:
+        path = self.store.script_path(project_id)
+        if not path.exists():
+            return None
+        return self.store.read_text(path)
 
     def _require_project_id(self) -> str:
         if self.project_id is None:

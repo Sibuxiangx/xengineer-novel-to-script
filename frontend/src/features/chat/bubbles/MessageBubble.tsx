@@ -2,6 +2,7 @@ import { Tag, Typography } from 'antd'
 import { FileTextOutlined } from '@ant-design/icons'
 import { formatDate, formatNumber } from '../../../lib/formatting'
 import type { ChatMessage } from '../../../types'
+import { MarkdownMessage } from './MarkdownMessage'
 
 const { Paragraph, Text } = Typography
 
@@ -26,11 +27,16 @@ function sourceAttachment(message: ChatMessage): { fileName: string; textLength:
 
 export function MessageBubbleContent({ message }: MessageBubbleContentProps) {
   const attachment = sourceAttachment(message)
+  const shouldRenderMarkdown = message.role === 'assistant'
   return (
     <div className="sw-bubble-message">
-      <Paragraph className="sw-bubble-text" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-        {message.content}
-      </Paragraph>
+      {shouldRenderMarkdown ? (
+        <MarkdownMessage content={message.content} />
+      ) : (
+        <Paragraph className="sw-bubble-text" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+          {message.content}
+        </Paragraph>
+      )}
       {attachment ? (
         <div className="sw-message-attachment">
           <Tag icon={<FileTextOutlined aria-hidden />} className="sw-message-attachment-tag">

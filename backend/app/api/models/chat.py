@@ -81,6 +81,12 @@ class ChapterSplitConfirmationPayload(BaseModel):
     file_name: str = Field(..., description="Original TXT file name.")
     source_text_path: str = Field(..., description="Local source TXT artifact path.")
     text_length: int = Field(..., description="Source text length in characters.")
+    adaptation_requirements: str | None = Field(
+        default=None,
+        description=(
+            "User's first-turn adaptation requirements submitted together with the source TXT."
+        ),
+    )
     rule: ChapterSplitRule = Field(..., description="Inferred chapter split rule.")
     preview: ChapterSplitInferencePreview = Field(..., description="Local split preview.")
 
@@ -204,6 +210,23 @@ class ChatRunStreamRequest(BaseModel):
         "short_drama",
         description="Target screenplay format for newly created projects.",
     )
+
+    @property
+    def adaptation_requirements(self) -> str | None:
+        """Treat the first message sent with TXT as initial adaptation requirements."""
+
+        if not self.source_text:
+            return None
+        content = self.message.strip()
+        if not content:
+            return None
+        generic_messages = {
+            "上传小说。",
+            "我上传了一篇小说，请开始改编。",
+            "请开始改编这篇小说。",
+            "开始改编。",
+        }
+        return None if content in generic_messages else content
 
 
 class ChatConfirmationActionRequest(BaseModel):

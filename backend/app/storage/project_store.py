@@ -47,6 +47,21 @@ class ProjectStore:
         path.write_text(content, encoding="utf-8")
         return path
 
+    def adaptation_requirements_path(self, project_id: str) -> Path:
+        return self.ensure_project_root(project_id) / "adaptation_requirements.txt"
+
+    def write_adaptation_requirements(self, project_id: str, requirements: str | None) -> Path:
+        path = self.adaptation_requirements_path(project_id)
+        path.write_text((requirements or "").strip(), encoding="utf-8")
+        return path
+
+    def read_adaptation_requirements(self, project_id: str) -> str | None:
+        path = self.adaptation_requirements_path(project_id)
+        if not path.exists():
+            return None
+        content = path.read_text(encoding="utf-8").strip()
+        return content or None
+
     def chapter_path(self, project_id: str, order_index: int, chapter_id: str) -> Path:
         filename = f"{order_index + 1:03d}-{chapter_id}.txt"
         return self.ensure_chapters_root(project_id) / filename

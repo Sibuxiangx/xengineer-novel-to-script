@@ -95,6 +95,7 @@ class ScriptService:
         self,
         project_id: str,
         force_regenerate: bool,
+        adaptation_requirements: str | None = None,
         stream_callback: StreamDeltaCallback | None = None,
     ) -> ScriptGenerateResponse:
         project = await self.projects.get(project_id)
@@ -126,6 +127,9 @@ class ScriptService:
             project_id=project_id,
             project_title=project.title,
             book_index=book_index,
+            adaptation_requirements=(
+                adaptation_requirements or self.store.read_adaptation_requirements(project_id)
+            ),
             chapters=[
                 {
                     "id": chapter.id,
@@ -633,12 +637,14 @@ class ScriptService:
         project_title: str,
         book_index: BookIndex,
         chapters: list[dict],
+        adaptation_requirements: str | None = None,
     ) -> PackedPrompt:
         return self.context_prompts.build_script_generation_prompt(
             project_id=project_id,
             project_title=project_title,
             book_index=book_index,
             chapters=chapters,
+            adaptation_requirements=adaptation_requirements,
         )
 
     def _edit_prompt(

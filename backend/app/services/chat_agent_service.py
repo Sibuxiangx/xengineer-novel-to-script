@@ -43,6 +43,7 @@ from app.db.models import (
     ChatConfirmationRecord,
     ChatConfirmationStatus,
     ChatMessageRecord,
+    ChatMessageRole,
     ChatRunRecord,
     ChatSessionRecord,
     ChatSessionStatus,
@@ -256,6 +257,13 @@ class ChatAgentService:
 
         try:
             if request.source_text:
+                assistant = await self._create_run_notice(
+                    session=session,
+                    run=run,
+                    content=self._source_ingestion_ack(request),
+                    metadata={"kind": "source_ingestion_ack"},
+                )
+                yield self._message_created_event(assistant, run.id)
                 async for event in self._stream_source_ingestion(session, run, request):
                     yield event
             else:
@@ -339,6 +347,7 @@ class ChatAgentService:
             run=run,
             source_file_name=request.source_file_name,
             source_text=request.source_text,
+            adaptation_requirements=request.adaptation_requirements,
             screenplay_format=request.screenplay_format,
         )
         deps = AgentDeps(
@@ -493,7 +502,11 @@ class ChatAgentService:
 
         try:
             async for observed in self._observe_awaitable(
-                toolbox.build_book_index(project_id, force_rebuild=True),
+                toolbox.build_book_index(
+                    project_id,
+                    force_rebuild=True,
+                    adaptation_requirements=payload.adaptation_requirements,
+                ),
                 run_id=run.id,
                 stage="build_book_index",
                 toolbox=toolbox,
@@ -510,7 +523,11 @@ class ChatAgentService:
 
         try:
             async for observed in self._observe_awaitable(
-                toolbox.generate_script_yaml(project_id, force_regenerate=True),
+                toolbox.generate_script_yaml(
+                    project_id,
+                    force_regenerate=True,
+                    adaptation_requirements=payload.adaptation_requirements,
+                ),
                 run_id=run.id,
                 stage="generate_script_yaml",
                 toolbox=toolbox,
@@ -551,7 +568,7 @@ class ChatAgentService:
             chat_session=session,
             content=(
                 "分章已确认，剧情索引和剧本 YAML 已生成。"
-                "你现在可以直接用自然语言继续要求我修改剧本。"
+                "你现在可以直接用自然语言继续要求我修改剧本，也可以询问原文剧情、人物、伏笔或改编依据。"
             ),
         )
         yield self._message_created_event(assistant, run.id)
@@ -657,6 +674,13 @@ class ChatAgentService:
         tools_by_run_id: dict[str, list[ChatToolCallRecord]] = {}
         for tool in tool_calls:
             tools_by_run_id.setdefault(tool.run_id, []).append(tool)
+        extra_messages_by_run_id: dict[str, list[ChatMessageRecord]] = {}
+        for message in messages:
+            if message.metadata_json is None:
+                continue
+            run_id = message.metadata_json.get("run_id")
+            if isinstance(run_id, str):
+                extra_messages_by_run_id.setdefault(run_id, []).append(message)
 
         items: list[ChatTimelineItemResponse] = []
         consumed_message_ids: set[str] = set()
@@ -722,6 +746,10 @@ class ChatAgentService:
                 user_message = messages_by_id.get(run.user_message_id)
                 if user_message is not None:
                     append_message(user_message, run.id)
+
+            for message in extra_messages_by_run_id.get(run.id, []):
+                if message.id not in {run.user_message_id, run.assistant_message_id}:
+                    append_message(message, run.id)
 
             for tool in tools_by_run_id.get(run.id, []):
                 append_tool(tool)
@@ -805,6 +833,7 @@ class ChatAgentService:
         source_file_name: str | None = None,
         source_text: str | None = None,
         screenplay_format: str = "short_drama",
+        adaptation_requirements: str | None = None,
     ) -> ChatToolbox:
         return ChatToolbox(
             db_session=self.session,
@@ -816,6 +845,7 @@ class ChatAgentService:
             run=run,
             source_file_name=source_file_name,
             source_text=source_text,
+            adaptation_requirements=adaptation_requirements,
             screenplay_format=screenplay_format,
         )
 
@@ -829,13 +859,34 @@ class ChatAgentService:
                 f"文件名：{file_name}",
                 f"全文字符数：{len(source_text)}",
                 f"目标剧本格式：{request.screenplay_format}",
+                (
+                    f"用户改编要求：{request.adaptation_requirements}"
+                    if request.adaptation_requirements
+                    else "用户改编要求：未额外说明。"
+                ),
+                "如果用户改编要求不为空，后续创建确认点时必须保留该要求，供生成剧情索引和剧本时使用。",
             ]
         )
+
+    @staticmethod
+    def _source_ingestion_ack(request: ChatRunStreamRequest) -> str:
+        if request.adaptation_requirements:
+            return (
+                "收到小说文本和你的改编要求。我会先建立项目并识别分章方式，"
+                "后续生成剧情索引和剧本时会带上这条要求。"
+            )
+        return "收到小说文本。我会先建立项目并识别分章方式，稍后请你确认分章结果。"
 
     def _chat_instruction_prompt(self, message: str, project_id: str) -> str:
         return "\n".join(
             [
                 "用户正在和已有小说改编项目对话，请根据意图选择合适工具。",
+                "如果用户要求修改剧本，请调用 edit_script_yaml。",
+                (
+                    "如果用户是在询问原文剧情、人物、伏笔、章节、当前剧本内容或"
+                    "改编依据，请调用 answer_novel_question。"
+                ),
+                "不要把问答误当成编辑；也不要在未调用工具时声称已经修改或查询过项目。",
                 f"项目 ID：{project_id}",
                 f"用户消息：{message}",
             ]
@@ -850,8 +901,28 @@ class ChatAgentService:
                 "file_name": request.source_file_name or "novel.txt",
                 "text_length": len(request.source_text),
                 "media_type": "text/plain",
-            }
+            },
+            "adaptation_requirements": request.adaptation_requirements,
         }
+
+    async def _create_run_notice(
+        self,
+        *,
+        session: ChatSessionRecord,
+        run: ChatRunRecord,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> ChatMessageRecord:
+        effective_metadata = {"run_id": run.id, **(metadata or {})}
+        message = await self.recorder.add_message(
+            session_id=session.id,
+            role=ChatMessageRole.assistant,
+            content=content,
+            metadata=effective_metadata,
+        )
+        await self.chat.touch_session(session)
+        await self.session.commit()
+        return message
 
     async def _observe_awaitable(
         self,

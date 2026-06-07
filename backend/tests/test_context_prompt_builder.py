@@ -54,6 +54,29 @@ def test_book_index_prompt_packs_manifest_without_blindly_including_long_raw_tex
     assert packed.report.omitted_block_ids == ["raw_chapter.chapter_001"]
 
 
+def test_book_index_prompt_includes_first_turn_adaptation_requirements() -> None:
+    builder = ContextPromptBuilder(make_settings(model_context_limit=10_000))
+
+    packed = builder.build_book_index_prompt(
+        project_title="雾港来信",
+        project_id="proj_test",
+        adaptation_requirements="请强化悬疑感，弱化爱情线。",
+        chapters=[
+            {
+                "id": "chapter_001",
+                "title": "第一章",
+                "order": 1,
+                "content": "林栩收到旧信。",
+                "token_estimate": 30,
+            }
+        ],
+    )
+
+    assert "用户在上传小说时给出的改编要求" in packed.prompt
+    assert "请强化悬疑感，弱化爱情线。" in packed.prompt
+    assert "adaptation_requirements" in packed.report.included_block_ids
+
+
 def test_script_generation_prompt_uses_index_and_bounded_source_excerpts() -> None:
     builder = ContextPromptBuilder(
         make_settings(
@@ -104,6 +127,93 @@ def test_script_generation_prompt_uses_index_and_bounded_source_excerpts() -> No
     assert "中间省略" in packed.prompt
     assert long_body not in packed.prompt
     assert "source_excerpt.chapter_001" in packed.report.included_block_ids
+
+
+def test_script_generation_prompt_includes_first_turn_adaptation_requirements() -> None:
+    builder = ContextPromptBuilder(make_settings(model_context_limit=10_000))
+    book_index = BookIndex(
+        schema_version="1.0",
+        book_id="proj_test",
+        title="雾港来信",
+        language="zh-CN",
+        chapter_count=1,
+        chapters=[
+            IndexedChapter(
+                id="chapter_001",
+                title="第一章",
+                order=1,
+                summary="林栩收到旧信。",
+                events=[],
+            )
+        ],
+    )
+
+    packed = builder.build_script_generation_prompt(
+        project_id="proj_test",
+        project_title="雾港来信",
+        book_index=book_index,
+        adaptation_requirements="请强化悬疑感，弱化爱情线。",
+        chapters=[
+            {
+                "id": "chapter_001",
+                "title": "第一章",
+                "content": "林栩收到旧信。",
+            }
+        ],
+    )
+
+    assert "生成剧本时必须优先遵守这些要求" in packed.prompt
+    assert "请强化悬疑感，弱化爱情线。" in packed.prompt
+    assert "adaptation_requirements" in packed.report.included_block_ids
+
+
+def test_novel_answer_prompt_uses_source_index_and_current_script_as_knowledge_base() -> None:
+    builder = ContextPromptBuilder(make_settings(model_context_limit=10_000))
+    book_index = BookIndex(
+        schema_version="1.0",
+        book_id="proj_test",
+        title="雾港来信",
+        language="zh-CN",
+        chapter_count=1,
+        chapters=[
+            IndexedChapter(
+                id="chapter_001",
+                title="第一章",
+                order=1,
+                summary="林栩收到旧信并前往剧场。",
+                events=[
+                    IndexedEvent(
+                        id="event_index_001",
+                        summary="旧信指向废弃剧场。",
+                        importance="major",
+                    )
+                ],
+            )
+        ],
+    )
+
+    packed = builder.build_novel_answer_prompt(
+        question="林栩为什么去剧场？",
+        project_id="proj_test",
+        project_title="雾港来信",
+        chapters=[
+            {
+                "id": "chapter_001",
+                "title": "第一章",
+                "order": 1,
+                "content": "旧信写着：午夜到废弃剧场来。",
+                "token_estimate": 40,
+            }
+        ],
+        book_index=book_index,
+        current_yaml="schema_version: '1.0'\nproject:\n  title: 雾港来信\n",
+    )
+
+    assert "把小说原文、剧情索引和当前剧本当作知识库" in packed.prompt
+    assert "林栩为什么去剧场？" in packed.prompt
+    assert "旧信指向废弃剧场" in packed.prompt
+    assert "旧信写着" in packed.prompt
+    assert "task.novel_qa" in packed.report.included_block_ids
 
 
 def test_repair_prompt_targets_previous_yaml_and_validation_issues() -> None:

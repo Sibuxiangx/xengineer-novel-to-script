@@ -34,6 +34,7 @@ class ContextPromptBuilder:
         project_title: str,
         project_id: str,
         chapters: list[dict[str, Any]],
+        adaptation_requirements: str | None = None,
     ) -> PackedPrompt:
         blocks = [
             self._block(
@@ -60,6 +61,22 @@ class ContextPromptBuilder:
                 content=self._chapter_manifest(chapters),
             ),
         ]
+        if adaptation_requirements:
+            blocks.append(
+                self._block(
+                    block_id="adaptation_requirements",
+                    block_type="user_requirements",
+                    priority=98,
+                    required=True,
+                    content="\n".join(
+                        [
+                            "用户在上传小说时给出的改编要求：",
+                            adaptation_requirements,
+                            "请在抽取人物、事件、线索和摘要时保留与这些要求相关的信息。",
+                        ]
+                    ),
+                )
+            )
         for chapter in chapters:
             blocks.append(
                 self._block(
@@ -87,6 +104,7 @@ class ContextPromptBuilder:
         project_title: str,
         book_index: BookIndex,
         chapters: list[dict[str, Any]],
+        adaptation_requirements: str | None = None,
     ) -> PackedPrompt:
         blocks = [
             self._block(
@@ -120,6 +138,25 @@ class ContextPromptBuilder:
                 content=self._indexed_chapter_summaries(book_index.chapters),
             ),
         ]
+        if adaptation_requirements:
+            blocks.append(
+                self._block(
+                    block_id="adaptation_requirements",
+                    block_type="user_requirements",
+                    priority=98,
+                    required=True,
+                    content="\n".join(
+                        [
+                            "用户在上传小说时给出的改编要求：",
+                            adaptation_requirements,
+                            (
+                                "生成剧本时必须优先遵守这些要求；如果与原文冲突，"
+                                "请在 adaptation_notes 中说明取舍。"
+                            ),
+                        ]
+                    ),
+                )
+            )
         for chapter in chapters:
             blocks.append(
                 self._block(
@@ -176,6 +213,84 @@ class ContextPromptBuilder:
                     priority=80,
                     required=False,
                     content=book_index.model_dump_json(indent=2),
+                )
+            )
+        return self._pack(blocks)
+
+    def build_novel_answer_prompt(
+        self,
+        question: str,
+        project_id: str,
+        project_title: str,
+        chapters: list[dict[str, Any]],
+        book_index: BookIndex | None,
+        current_yaml: str | None,
+    ) -> PackedPrompt:
+        blocks = [
+            self._block(
+                block_id="task.novel_qa",
+                block_type="task_instruction",
+                priority=100,
+                required=True,
+                content="\n".join(
+                    [
+                        "请把小说原文、剧情索引和当前剧本当作知识库回答用户问题。",
+                        "必须使用中文回答。",
+                        (
+                            "优先依据小说原文与 book_index.json；涉及已生成剧本的内容时，"
+                            "可以参考当前 script.yaml。"
+                        ),
+                        "如果上下文不足以确定答案，请明确说明无法确认，不要编造。",
+                        "回答应简洁、可直接展示给作者；必要时列出依据的章节标题或场景。",
+                        f"项目 ID：{project_id}",
+                        f"项目标题：{project_title}",
+                        f"用户问题：{question}",
+                    ]
+                ),
+            ),
+            self._block(
+                block_id="chapter_manifest",
+                block_type="chapter_manifest",
+                priority=95,
+                required=True,
+                content=self._chapter_manifest(chapters),
+            ),
+        ]
+        if book_index is not None:
+            blocks.append(
+                self._block(
+                    block_id="book_index",
+                    block_type="book_index",
+                    priority=92,
+                    required=False,
+                    content=book_index.model_dump_json(indent=2),
+                )
+            )
+        if current_yaml:
+            blocks.append(
+                self._block(
+                    block_id="current_script_yaml",
+                    block_type="script_yaml",
+                    priority=80,
+                    required=False,
+                    content=current_yaml,
+                )
+            )
+        for chapter in chapters:
+            blocks.append(
+                self._block(
+                    block_id=f"source_excerpt.{chapter['id']}",
+                    block_type="source_excerpt",
+                    priority=max(30, 75 - int(chapter["order"])),
+                    required=False,
+                    content="\n".join(
+                        [
+                            f"章节 ID：{chapter['id']}",
+                            f"章节标题：{chapter['title']}",
+                            "章节摘录：",
+                            self._excerpt(str(chapter["content"])),
+                        ]
+                    ),
                 )
             )
         return self._pack(blocks)
